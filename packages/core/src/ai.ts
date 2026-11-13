@@ -3,12 +3,13 @@ import { z } from "zod";
 import type { Trigger } from "./ir.ts";
 import type { Conversion } from "./rules.ts";
 
+// Limites de tamanho cortam o excesso em vez de descartar a conversão inteira.
 const AiOutput = z.object({
   apexComponent: z.enum(["validation", "computation", "process", "dynamic_action", "region_query", "nativo", "button"]),
-  description: z.string().min(5).max(600),
-  code: z.string().max(8000).optional(),
+  description: z.string().min(5).transform((s) => s.slice(0, 600)),
+  code: z.string().max(8000).nullish().transform((s) => s ?? undefined),
   confidence: z.number().min(0).max(1),
-  openQuestions: z.array(z.string()).max(5).default([]),
+  openQuestions: z.array(z.string()).default([]).transform((q) => q.slice(0, 5)),
 });
 
 // Instrução fixa: vai com cache_control para não pagar tokens de novo a cada trigger.
@@ -19,6 +20,9 @@ Regras:
 - Prefira componentes declarativos (validation, computation, dynamic_action) a PL/SQL solto.
 - Se depender de algo que você não vê (package externo, tabela desconhecida), baixe a confiança e registre em openQuestions.
 - Nunca invente nomes de tabela ou coluna.
+- openQuestions: no máximo 5 dúvidas, curtas, só as que impedem publicar sem revisão.
+- apexComponent é exatamente um destes: "validation", "computation", "process", "dynamic_action", "region_query", "nativo", "button".
+  Navegação para outro form (CALL_FORM, OPEN_FORM, NEW_FORM) vira "button" com ação "Redirect to Page", passando os itens necessários na URL.
 Responda SOMENTE com JSON: {"apexComponent","description","code","confidence","openQuestions"}.`;
 
 export interface AiOptions {
@@ -58,7 +62,10 @@ ${t.code}
 
   const text = msg.content.map((c) => ("text" in c ? c.text : "")).join("");
   const json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
-  const parsed = AiOutput.parse(JSON.parse(json)); // falha de schema vira pendência no chamador
+  const result = AiOutput.safeParse(JSON.parse(json));
+  // falha de schema vira pendência no chamador, com mensagem de uma linha
+  if (!result.success) throw new Error(`resposta fora do schema: ${result.error.issues.map((i) => `${i.path.join(".") || "raiz"}: ${i.message}`).join("; ")}`);
+  const parsed = result.data;
 
   return {
     conversion: { ...parsed, source: "ia" },

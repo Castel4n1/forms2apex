@@ -705,7 +705,8 @@ export function generateApexScript(ir: IR, bp: Blueprint, results: TriggerResult
     // Itens de outras conversões que o gerador não posiciona sozinho.
     for (const x of conv.filter((y) => page.regions.some((r) => r.formsBlock.toUpperCase() === blockOf(y.owner)))) {
       if (x.c.apexComponent === "dynamic_action") manual.push(`Página ${page.id}: ${x.owner} ${x.name} pede Dynamic Action: ${x.c.description}`);
-      if (x.c.apexComponent === "computation" || (x.c.source === "ia" && x.c.apexComponent === "process")) manual.push(`Página ${page.id}: conversão por IA de ${x.owner} ${x.name} (${x.c.apexComponent}) não foi posicionada automaticamente; veja conversoes.json.`);
+      else if (x.c.apexComponent === "computation" || (x.c.source === "ia" && x.c.apexComponent !== "validation" && x.c.apexComponent !== "nativo"))
+        manual.push(`Página ${page.id}: conversão por IA de ${x.owner} ${x.name} (${x.c.apexComponent}) não foi posicionada automaticamente; aplique a partir de conversoes.json.`);
     }
 
     if (master) {
