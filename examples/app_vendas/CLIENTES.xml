@@ -5,14 +5,14 @@
     <Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="go_block('CLI');&#10;execute_query;"/>
     <Trigger Name="ON-ERROR" TriggerText="message('Erro: '||error_text);"/>
     <Trigger Name="KEY-EXIT" TriggerText="exit_form;"/>
-    <Block Name="CLI" QueryDataSourceName="CLIENTES" RecordsDisplayCount="1" DatabaseBlock="true" OrderByClause="nome">
-      <Trigger Name="POST-QUERY" TriggerText="select descricao into :cli.desc_cidade from cidades where id = :cli.cidade_id;"/>
-      <Trigger Name="PRE-INSERT" TriggerText="select clientes_seq.nextval into :cli.id from dual;&#10;:cli.dt_cadastro := sysdate;"/>
+    <Block Name="CLI" QueryDataSourceName="VND_CLIENTES" RecordsDisplayCount="1" DatabaseBlock="true" OrderByClause="nome">
+      <Trigger Name="POST-QUERY" TriggerText="select descricao into :cli.desc_cidade from vnd_cidades where id = :cli.cidade_id;"/>
+      <Trigger Name="PRE-INSERT" TriggerText="select vnd_clientes_seq.nextval into :cli.id from dual;&#10;:cli.dt_cadastro := sysdate;"/>
       <Trigger Name="KEY-COMMIT" TriggerText="commit_form;"/>
       <Item Name="ID" ItemType="Text Item" DataType="Number" MaximumLength="10" Prompt="Código" PrimaryKey="true"/>
       <Item Name="NOME" ItemType="Text Item" DataType="Char" MaximumLength="100" Prompt="Nome" Required="true"/>
       <Item Name="CPF" ItemType="Text Item" DataType="Char" MaximumLength="14" Prompt="CPF">
-        <Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="if not pkg_util.cpf_valido(:cli.cpf) then&#10;  message('CPF inválido');&#10;  raise form_trigger_failure;&#10;end if;"/>
+        <Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="if not vnd_util.cpf_valido(:cli.cpf) then&#10;  message('CPF inválido');&#10;  raise form_trigger_failure;&#10;end if;"/>
       </Item>
       <Item Name="EMAIL" ItemType="Text Item" DataType="Char" MaximumLength="120" Prompt="E-mail">
         <Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="if :cli.email not like '%@%' then&#10;  message('E-mail inválido');&#10;  raise form_trigger_failure;&#10;end if;"/>
@@ -29,7 +29,7 @@
       </Item>
     </Block>
     <LOV Name="LOV_CIDADES" RecordGroupName="RG_CIDADES" Title="Cidades"/>
-    <RecordGroup Name="RG_CIDADES" RecordGroupQuery="select descricao, id from cidades order by descricao"/>
+    <RecordGroup Name="RG_CIDADES" RecordGroupQuery="select descricao, id from vnd_cidades order by descricao"/>
     <Canvas Name="CV_PRINCIPAL" CanvasType="Content"/>
   </FormModule>
 </Module>

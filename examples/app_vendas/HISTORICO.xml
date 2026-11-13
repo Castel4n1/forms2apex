@@ -4,7 +4,7 @@
   <FormModule Name="HISTORICO" Title="Histórico de Preços" FirstNavigationBlockName="HIS">
     <Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="go_block('HIS');&#10;execute_query;"/>
     <Trigger Name="KEY-EXIT" TriggerText="exit_form;"/>
-    <Block Name="HIS" QueryDataSourceName="HISTORICO_PRECOS" RecordsDisplayCount="15" WhereClause="produto_id = :global.produto_id" OrderByClause="dt_alteracao desc" InsertAllowed="false" UpdateAllowed="false" DeleteAllowed="false">
+    <Block Name="HIS" QueryDataSourceName="VND_HISTORICO_PRECOS" RecordsDisplayCount="15" WhereClause="produto_id = :global.produto_id" OrderByClause="dt_alteracao desc" InsertAllowed="false" UpdateAllowed="false" DeleteAllowed="false">
       <Item Name="ID" ItemType="Text Item" DataType="Number" PrimaryKey="true" Visible="false"/>
       <Item Name="PRODUTO_ID" ItemType="Text Item" DataType="Number" Visible="false"/>
       <Item Name="DT_ALTERACAO" ItemType="Text Item" DataType="Date" Prompt="Data"/>

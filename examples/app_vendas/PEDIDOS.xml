@@ -4,15 +4,15 @@
   <FormModule Name="PEDIDOS" Title="Pedidos de Venda" FirstNavigationBlockName="PED">
     <Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="go_block('PED');&#10;execute_query;"/>
     <Trigger Name="KEY-EXIT" TriggerText="exit_form;"/>
-    <Block Name="PED" QueryDataSourceName="PEDIDOS" RecordsDisplayCount="1" DatabaseBlock="true" WhereClause="cliente_id = nvl(:global.cliente_id, cliente_id)" OrderByClause="numero desc">
-      <Trigger Name="POST-QUERY" TriggerText="select nome into :ped.nome_cliente from clientes where id = :ped.cliente_id;"/>
-      <Trigger Name="PRE-INSERT" TriggerText="select pedidos_seq.nextval into :ped.numero from dual;&#10;:ped.usuario := user;"/>
+    <Block Name="PED" QueryDataSourceName="VND_PEDIDOS" RecordsDisplayCount="1" DatabaseBlock="true" WhereClause="cliente_id = nvl(:global.cliente_id, cliente_id)" OrderByClause="numero desc">
+      <Trigger Name="POST-QUERY" TriggerText="select nome into :ped.nome_cliente from vnd_clientes where id = :ped.cliente_id;"/>
+      <Trigger Name="PRE-INSERT" TriggerText="select vnd_pedidos_seq.nextval into :ped.numero from dual;&#10;:ped.usuario := user;"/>
       <Trigger Name="WHEN-CREATE-RECORD" TriggerText=":ped.status := 'A';"/>
       <Trigger Name="WHEN-VALIDATE-RECORD" TriggerText="if :ped.desconto &gt; 30 then&#10;  message('Desconto acima de 30% precisa de aprovação');&#10;  raise form_trigger_failure;&#10;end if;"/>
       <Item Name="NUMERO" ItemType="Text Item" DataType="Number" Prompt="Pedido" PrimaryKey="true"/>
       <Item Name="DT_PEDIDO" ItemType="Text Item" DataType="Date" Prompt="Data" InitializeValue="$$DATE$$" Required="true"/>
       <Item Name="CLIENTE_ID" ItemType="Text Item" DataType="Number" Prompt="Cliente" LovName="LOV_CLIENTES" Required="true">
-        <Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="select nome into :ped.nome_cliente from clientes where id = :ped.cliente_id;"/>
+        <Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="select nome into :ped.nome_cliente from vnd_clientes where id = :ped.cliente_id;"/>
       </Item>
       <Item Name="NOME_CLIENTE" ItemType="Display Item" DataType="Char" DatabaseItem="false"/>
       <Item Name="STATUS" ItemType="Radio Group" DataType="Char" Prompt="Situação">
@@ -26,7 +26,7 @@
       <Item Name="VALOR_TOTAL" ItemType="Text Item" DataType="Number" Prompt="Total"/>
       <Item Name="USUARIO" ItemType="Text Item" DataType="Char" MaximumLength="30" Visible="false"/>
       <Item Name="BT_RECALCULAR" ItemType="Push Button" Label="Recalcular total" DatabaseItem="false">
-        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="select sum(quantidade * preco_unit) into :ped.valor_total from itens_pedido where pedido_id = :ped.numero;&#10;:ped.valor_total := calc_desconto(:ped.valor_total, :ped.desconto);"/>
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="select sum(quantidade * preco_unit) into :ped.valor_total from vnd_itens_pedido where pedido_id = :ped.numero;&#10;:ped.valor_total := calc_desconto(:ped.valor_total, :ped.desconto);"/>
       </Item>
       <Item Name="BT_CLIENTE" ItemType="Push Button" Label="Ver cliente" DatabaseItem="false">
         <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="call_form('CLIENTES');"/>
@@ -35,9 +35,9 @@
         <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="run_report_object(find_report_object('PEDIDO_REL'));"/>
       </Item>
     </Block>
-    <Block Name="ITENS" QueryDataSourceName="ITENS_PEDIDO" RecordsDisplayCount="8" WhereClause="pedido_id = :ped.numero" OrderByClause="id">
-      <Trigger Name="POST-QUERY" TriggerText="select descricao into :itens.desc_produto from produtos where id = :itens.produto_id;"/>
-      <Trigger Name="PRE-INSERT" TriggerText="select itens_pedido_seq.nextval into :itens.id from dual;"/>
+    <Block Name="ITENS" QueryDataSourceName="VND_ITENS_PEDIDO" RecordsDisplayCount="8" WhereClause="pedido_id = :ped.numero" OrderByClause="id">
+      <Trigger Name="POST-QUERY" TriggerText="select descricao into :itens.desc_produto from vnd_produtos where id = :itens.produto_id;"/>
+      <Trigger Name="PRE-INSERT" TriggerText="select vnd_itens_pedido_seq.nextval into :itens.id from dual;"/>
       <Item Name="ID" ItemType="Text Item" DataType="Number" PrimaryKey="true" Visible="false"/>
       <Item Name="PEDIDO_ID" ItemType="Text Item" DataType="Number" Visible="false"/>
       <Item Name="PRODUTO_ID" ItemType="Text Item" DataType="Number" Prompt="Produto" LovName="LOV_PRODUTOS" Required="true"/>
@@ -49,8 +49,8 @@
     </Block>
     <LOV Name="LOV_CLIENTES" RecordGroupName="RG_CLIENTES" Title="Clientes"/>
     <LOV Name="LOV_PRODUTOS" RecordGroupName="RG_PRODUTOS" Title="Produtos"/>
-    <RecordGroup Name="RG_CLIENTES" RecordGroupQuery="select nome, id from clientes order by nome"/>
-    <RecordGroup Name="RG_PRODUTOS" RecordGroupQuery="select descricao, id from produtos where ativo = 'S' order by descricao"/>
+    <RecordGroup Name="RG_CLIENTES" RecordGroupQuery="select nome, id from vnd_clientes order by nome"/>
+    <RecordGroup Name="RG_PRODUTOS" RecordGroupQuery="select descricao, id from vnd_produtos where ativo = 'S' order by descricao"/>
     <AttachedLibrary Name="VENDAS_LIB"/>
     <Canvas Name="CV_PEDIDO" CanvasType="Content"/>
   </FormModule>
