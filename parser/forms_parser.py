@@ -87,8 +87,26 @@ class Parser:
             "lov": attr(el, "LovName"),
             "canvas": attr(el, "CanvasName"),
             "visible": attr(el, "Visible", "true") != "false",
+            "primaryKey": attr(el, "PrimaryKey") == "true" or None,
+            # frmf2xml usa InitializeValue; algumas versoes exportam InitialValue
+            "initialValue": attr(el, "InitializeValue") or attr(el, "InitialValue"),
+            "checkedValue": attr(el, "CheckedValue"),
+            "uncheckedValue": attr(el, "UncheckedValue"),
+            "listValues": self.list_values(el) or None,
         }
         return {k: v for k, v in data.items() if v not in (None, "")}
+
+    @staticmethod
+    def list_values(el):
+        """Elementos de List Item e botoes de Radio Group: [{label, value}]."""
+        out = []
+        for c in el:
+            name = local(c.tag)
+            if name == "ListItemElement":
+                out.append({"label": attr(c, "Name", ""), "value": attr(c, "Value", attr(c, "Name", ""))})
+            elif name == "RadioButton":
+                out.append({"label": attr(c, "Label") or attr(c, "Name", ""), "value": attr(c, "RadioButtonValue", attr(c, "Name", ""))})
+        return out
 
     def block(self, el, triggers):
         name = attr(el, "Name")

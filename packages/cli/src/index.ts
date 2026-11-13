@@ -8,13 +8,14 @@ const { positionals, values } = parseArgs({
   options: {
     out: { type: "string", default: "output" },
     profile: { type: "string" },
+    "apex-base": { type: "string" },
     json: { type: "boolean", default: false },
   },
 });
 
 const [cmd, xml] = positionals;
 if (cmd !== "migrate" || !xml) {
-  console.error("uso: f2a migrate <form.xml> [--out pasta] [--profile perfil.json] [--json]");
+  console.error("uso: f2a migrate <form.xml> [--out pasta] [--profile perfil.json] [--apex-base fNNN.sql] [--json]");
   process.exit(2);
 }
 
@@ -26,6 +27,7 @@ try {
     xmlPath: xml,
     outDir: values.out!,
     profile,
+    apexBasePath: values["apex-base"],
     onEvent: (e) => (values.json ? console.log(JSON.stringify(e)) : console.log(`[${icon[e.status]}] ${e.phase.padEnd(14)} ${e.message}`)),
   });
   if (!values.json) console.log(`\nResumo: ${JSON.stringify(res.stats)}`);

@@ -5,5 +5,6 @@ export * from "./rules.ts";
 export * from "./plan.ts";
 export * from "./convert.ts";
 export * from "./generate.ts";
+export * from "./apex.ts";
 export * from "./report.ts";
 export * from "./pipeline.ts";

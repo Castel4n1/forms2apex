@@ -1,9 +1,11 @@
 import { execFile } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { AiOptions } from "./ai.ts";
+import { generateApexScript, parseApexBase, type ApexBase } from "./apex.ts";
 import { convertTriggers, pendingFromProgramUnits } from "./convert.ts";
 import { diagnose } from "./diagnose.ts";
 import { enrichRegions, generateLovs, generatePackage, generateRegionQueries } from "./generate.ts";
@@ -15,6 +17,13 @@ import { decisionsReport, pendingReport, testScript, traceReport } from "./repor
 const run = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 export const parserPath = () => process.env.F2A_PARSER ?? resolve(here, "../../../parser/forms_parser.py");
+
+/** Python do parser: F2A_PYTHON, senão o .venv do projeto (npm run setup), senão python3 do sistema. */
+export function pythonPath(): string {
+  if (process.env.F2A_PYTHON) return process.env.F2A_PYTHON;
+  const venv = resolve(dirname(parserPath()), "../.venv/bin/python");
+  return existsSync(venv) ? venv : "python3";
+}
 
 export type Phase = "upload" | "preorientacao" | "extracao" | "classificacao" | "conversao" | "geracao" | "validacao" | "entrega";
 export const PHASES: Phase[] = ["upload", "preorientacao", "extracao", "classificacao", "conversao", "geracao", "validacao", "entrega"];
@@ -33,6 +42,8 @@ export interface Limits {
 
 export interface PipelineOptions {
   xmlPath: string;
+  /** Export da aplicação APEX de destino (fNNN.sql): herda workspace, offset, templates e evita IDs de página em uso. */
+  apexBasePath?: string;
   outDir: string;
   profile?: RawProfile;
   ai?: AiOptions;
@@ -42,12 +53,21 @@ export interface PipelineOptions {
 
 export interface PipelineResult {
   files: Record<string, string>;
-  stats: { blocks: number; items: number; triggers: number; converted: number; pending: number; blocking: number; tokensIn: number; tokensOut: number };
+  stats: { blocks: number; items: number; triggers: number; converted: number; pending: number; blocking: number; apexPages: number; manualSteps: number; tokensIn: number; tokensOut: number };
 }
 
 export async function extractIR(xmlPath: string): Promise<IR> {
-  const { stdout } = await run("python3", ["-I", parserPath(), xmlPath], { maxBuffer: 20 * 1024 * 1024 });
-  return IRSchema.parse(JSON.parse(stdout));
+  // -E ignora PYTHONPATH e afins, mas mantém os pacotes do usuário (o -I escondia o lxml instalado com pip --user).
+  const py = pythonPath();
+  try {
+    const { stdout } = await run(py, ["-E", parserPath(), xmlPath], { maxBuffer: 20 * 1024 * 1024 });
+    return IRSchema.parse(JSON.parse(stdout));
+  } catch (err) {
+    const stderr = String((err as { stderr?: string }).stderr ?? "");
+    if (/No module named 'lxml'/.test(stderr)) throw new Error(`lxml não encontrado para ${py}. Rode "npm run setup" (cria .venv com as dependências) ou defina F2A_PYTHON.`);
+    if (stderr.trim()) throw new Error(stderr.trim().split("\n").slice(-1)[0]);
+    throw err;
+  }
 }
 
 export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
@@ -72,7 +92,12 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
 
   emit({ phase: "classificacao", status: "rodando", message: "Diagnosticando riscos" });
   const findings = diagnose(ir);
-  const blueprint = planApplication(ir, profile);
+  let base: ApexBase | undefined;
+  if (o.apexBasePath) {
+    base = parseApexBase(await readFile(o.apexBasePath, "utf8"));
+    emit({ phase: "classificacao", status: "ok", message: `Export base: aplicação ${base.applicationId}, APEX ${base.release}, ${base.usedPages.size} página(s) já existentes` });
+  }
+  const blueprint = planApplication(ir, profile, { usedPages: base?.usedPages });
   const binds = bindMapper(blueprint);
   emit({ phase: "classificacao", status: findings.some((f) => f.severity === "bloqueante") ? "aviso" : "ok", message: `${findings.length} risco(s) encontrado(s), ${blueprint.pages.length} página(s) planejada(s)`, stats: { riscos: findings.length, paginas: blueprint.pages.length } });
 
@@ -90,6 +115,7 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
 
   emit({ phase: "geracao", status: "rodando", message: "Gerando artefatos APEX" });
   enrichRegions(blueprint, conv.results, binds.fn);
+  const apex = generateApexScript(ir, blueprint, conv.results, binds.fn, base);
   const conversions = conv.results.map((r) => ({ origem: `${r.trigger.owner} / ${r.trigger.name}`, ...r.conversion, pendencias: r.pendingIds }));
   const files: Record<string, string> = {
     "ir.json": JSON.stringify(ir, null, 2),
@@ -99,12 +125,14 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
     [`install/01_${ir.form.name.toLowerCase()}_pkg.sql`]: generatePackage(ir),
     "install/02_lovs.sql": generateLovs(blueprint),
     "install/03_queries_regioes.sql": generateRegionQueries(blueprint),
+    "install/04_apex_paginas.sql": apex.sql,
+    "COMO_IMPORTAR.md": apex.guide,
     "PENDENCIAS.md": pendingReport(ir, pending),
     "RASTREABILIDADE.md": traceReport(blueprint, conv.results),
     "DECISOES.md": decisionsReport(profile, findings),
     "ROTEIRO_TESTES.md": testScript(blueprint, conv.results),
   };
-  emit({ phase: "geracao", status: "ok", message: `${Object.keys(files).length} arquivos gerados` });
+  emit({ phase: "geracao", status: "ok", message: `${Object.keys(files).length} arquivos gerados; páginas APEX ${apex.pages.map((p) => p.id).join(", ")}${apex.manualSteps.length ? `, ${apex.manualSteps.length} ajuste(s) manual(is)` : ""}` });
 
   const blocking = pending.filter((p) => p.severity === "bloqueante").length;
   emit({ phase: "validacao", status: blocking ? "aviso" : "ok", message: blocking ? `${blocking} pendência(s) bloqueante(s): não publicar antes de resolver` : "Schema validado. Compilação no banco: rode install/ no seu DEV" });
@@ -118,6 +146,6 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
 
   return {
     files,
-    stats: { blocks: ir.blocks.length, items, triggers: ir.triggers.length, converted, pending: pending.length, blocking, tokensIn: conv.tokens.input, tokensOut: conv.tokens.output },
+    stats: { blocks: ir.blocks.length, items, triggers: ir.triggers.length, converted, pending: pending.length, blocking, apexPages: apex.pages.length, manualSteps: apex.manualSteps.length, tokensIn: conv.tokens.input, tokensOut: conv.tokens.output },
   };
 }

@@ -1,17 +1,17 @@
 ---
 name: apex-generate
-description: Monta a aplicação Oracle APEX a partir do blueprint.json e dos scripts em install/ gerados pelo forms2apex.
+description: Importa no Oracle APEX as páginas geradas pelo forms2apex (install/04_apex_paginas.sql) e conclui os ajustes manuais listados em COMO_IMPORTAR.md.
 ---
 
 # Gerar APEX
 
-Entrada: `blueprint.json`, `install/*.sql`, `conversoes.json`.
+Entrada: `install/*.sql`, `COMO_IMPORTAR.md`, `conversoes.json`, `blueprint.json`.
 
-1. Compile `install/01_*_pkg.sql` no schema DEV (só depois de revisar as pendências de program units).
-2. Crie as LOVs de `install/02_lovs.sql` em Shared Components.
-3. Para cada página do blueprint, crie a página com o tipo de região indicado (`form`, `interactive_grid`, `interactive_report_modal`) usando a query de `install/03_queries_regioes.sql`.
-4. Aplique cada item de `conversoes.json`: validações, computações, PK por sequence.
+1. Se houver aplicação de destino, gere de novo com `--apex-base fNNN.sql` (export dela) para herdar tema, templates e offset. Sem isso, o script exige `apex_application_install`.
+2. Somente em DEV: compile `install/01_*_pkg.sql` (units com pendência ficam comentadas).
+3. Importe `install/04_apex_paginas.sql` (SQLcl ou App Builder > Import). Se um ID de página já existir, o import para e faz rollback: não force.
+4. Faça cada item de "Ajustes manuais" do `COMO_IMPORTAR.md` (Dynamic Actions, validações de coluna do IG, botões sem ação, ordem display/return das LOVs).
 5. Siga `layoutNotes` do blueprint para a fidelidade visual escolhida.
 6. Exporte a aplicação (SQLcl: `apex export -applicationid <ID>`) para versionar.
 
-Status: a geração automática do script de import APEX é a fase 3 do roadmap. Até lá, esta skill guia a criação assistida.
+Se o import falhar, registre a mensagem do erro e o trecho do script como pendência e avise: o gerador foi escrito a partir de um export real do 26.1, mas cada versão do APEX pode mudar parâmetros.

@@ -14,6 +14,11 @@ export const ItemSchema = z.object({
   lov: z.string().optional(),
   canvas: z.string().optional(),
   visible: z.boolean().default(true),
+  primaryKey: z.boolean().default(false),
+  initialValue: z.string().optional(),
+  checkedValue: z.string().optional(),
+  uncheckedValue: z.string().optional(),
+  listValues: z.array(z.object({ label: z.string(), value: z.string() })).optional(),
 });
 
 export const BlockSchema = z.object({

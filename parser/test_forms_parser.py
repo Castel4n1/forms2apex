@@ -13,6 +13,16 @@ class ParserTest(unittest.TestCase):
         self.assertEqual(len(ir["blocks"]), 2)
         self.assertEqual(len(ir["triggers"]), 7)
 
+    def test_itens_ricos(self):
+        ir = Parser().parse((ROOT / "examples" / "produtos.xml").read_bytes())
+        prd = {i["name"]: i for i in ir["blocks"][0]["items"]}
+        self.assertTrue(prd["ID"]["primaryKey"])
+        self.assertEqual(prd["DT_CADASTRO"]["initialValue"], "$$DATE$$")
+        self.assertEqual([v["value"] for v in prd["UNIDADE"]["listValues"]], ["UN", "KG", "CX"])
+        self.assertEqual(prd["ATIVO"]["checkedValue"], "S")
+        est = {i["name"]: i for i in ir["blocks"][1]["items"]}
+        self.assertEqual(est["DEPOSITO"]["listValues"][1], {"label": "Filial", "value": "F"})
+
     def test_mascara_segredo(self):
         txt, n = mask_secrets("logon('scott/tiger@prod'); senha := 'abc';")
         self.assertNotIn("tiger", txt)

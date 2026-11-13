@@ -97,13 +97,20 @@ export async function convertTriggers(
   return { results, pending, tokens };
 }
 
+const FORMS_BUILTINS = /\b(message|go_block|go_item|execute_query|set_item_property|get_item_property|show_lov|clear_form|synchronize|name_in|copy|call_form|new_form|open_form)\b|:\w+\.\w+/i;
+
+/** Problemas que impedem a program unit de ir direto para o package do banco. */
+export function programUnitIssues(p: IR["programUnits"][number]): { reasons: string[]; findings: Finding[] } {
+  const findings = scanCode(p.code, `Program unit ${p.name}`);
+  const reasons = findings.map((f) => f.reason);
+  if (FORMS_BUILTINS.test(p.code)) reasons.push("Usa built-ins do Forms ou binds de bloco; não compila em package sem ajuste");
+  return { reasons, findings };
+}
+
 export function pendingFromProgramUnits(ir: IR, startAt: number): Pending[] {
   const out: Pending[] = [];
-  const builtins = /\b(message|go_block|go_item|execute_query|set_item_property|get_item_property|show_lov|clear_form|synchronize)\b|:\w+\.\w+/i;
   for (const p of ir.programUnits) {
-    const findings = scanCode(p.code, `Program unit ${p.name}`);
-    const reasons = findings.map((f) => f.reason);
-    if (builtins.test(p.code)) reasons.push("Usa built-ins do Forms ou binds de bloco; não compila em package sem ajuste");
+    const { reasons, findings } = programUnitIssues(p);
     for (const reason of reasons) {
       out.push({
         id: `PEND-${String(startAt + out.length + 1).padStart(3, "0")}`,
