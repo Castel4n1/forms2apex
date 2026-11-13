@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { TriggerResult } from "./convert.ts";
 import type { IR } from "./ir.ts";
 import type { Blueprint, PlannedItem, PlannedPage, PlannedRegion } from "./plan.ts";
-import { translateExpr, type Assignment, type BindMapper, type Conversion, type Lookup } from "./rules.ts";
+import { globalsIn, translateExpr, type Assignment, type BindMapper, type Conversion, type Lookup, type Navigation } from "./rules.ts";
 
 /**
  * Fase 3: gera um script de import de PÁGINAS (formato "Page Export") para uma aplicação APEX existente.
@@ -64,7 +64,7 @@ export function parseApexBase(sql: string): ApexBase {
 // ---------- serialização no formato do export ----------
 
 /** Comentários do script ficam em ASCII, como no export oficial. */
-const sqlComment = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7e]/g, "?");
+export const sqlComment = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7e]/g, "?");
 
 /** Literal SQL. Não ASCII vira unistr('\00E7'), como o APEX exporta, para não depender do charset do cliente SQL. */
 export function sqlString(s: string): string {
@@ -93,9 +93,9 @@ function sqlAttrs(o: Record<string, string>): string {
     .join(",\n")})).to_clob`;
 }
 
-type Param = [string, string | number | boolean | undefined];
+export type Param = [string, string | number | boolean | undefined];
 
-function call(proc: string, params: Param[]): string {
+export function call(proc: string, params: Param[]): string {
   const ps = params.filter(([, v]) => v !== undefined) as [string, string | number | boolean][];
   return `${proc}(\n${ps.map(([k, v], i) => `${i ? "," : " "}p_${k}=>${v}`).join("\n")}\n);`;
 }
@@ -142,12 +142,58 @@ export interface ApexScript {
   manualSteps: string[];
 }
 
-export function generateApexScript(ir: IR, bp: Blueprint, results: TriggerResult[], mapBind: BindMapper, base?: ApexBase): ApexScript {
+/** Seções de páginas de um form, sem cabeçalho nem rodapé: o modo aplicação junta as de todos os forms. */
+export interface ApexPages {
+  blocks: string[];
+  pages: ApexScript["pages"];
+  manualSteps: string[];
+  /** Application items (GLOBAL_X) usados pelo form. */
+  globals: string[];
+}
+
+export interface ApexPageOptions {
+  /** Página de entrada de outro form (modo aplicação). undefined = form fora do lote. */
+  formPage?: (form: string) => number | undefined;
+  /** O modo aplicação cria os application items; no modo de um form eles viram ajuste manual. */
+  createsGlobals?: boolean;
+}
+
+/** ID estável do export: hash do escopo + chave, na faixa que o APEX usa. */
+export function exportId(scope: string, key: string): string {
+  const h = createHash("sha1").update(`${scope}|${key}`).digest("hex");
+  return (BigInt("0x" + h.slice(0, 15)) % 9_000_000_000_000_000n + 1_000_000_000_000_000n).toString();
+}
+
+/** URL f?p= que abre a página e preenche os application items da chamada. */
+export function navigationUrl(page: number, nav: Navigation, mapBind: BindMapper): string | undefined {
+  const names: string[] = [];
+  const values: string[] = [];
+  for (const g of nav.globals) {
+    let v: string;
+    if ("bind" in g.value) {
+      const [b, i] = g.value.bind.split(".");
+      v = `&${mapBind(b, i)}.`;
+    } else if ("literal" in g.value) {
+      if (!/^[\w .\-]*$/.test(g.value.literal)) return undefined; // vírgula, dois-pontos etc. quebram a URL
+      v = g.value.literal;
+    } else v = "";
+    names.push(g.item);
+    values.push(v);
+  }
+  return `f?p=&APP_ID.:${page}:&SESSION.::&DEBUG.:${page}:${names.join(",")}:${values.join(",")}`;
+}
+
+export function generateApexScript(ir: IR, bp: Blueprint, results: TriggerResult[], mapBind: BindMapper, base?: ApexBase, opts: ApexPageOptions = {}): ApexScript {
+  const out = generateApexPages(ir, bp, results, mapBind, base, opts);
+  const manual = out.manualSteps;
+  if (base && !base.release.startsWith("26.")) manual.unshift(`O export base é do APEX ${base.release}; o formato gerado foi validado contra o 26.1. Importe primeiro num ambiente DEV.`);
+  const sql = `${apexHeader(base, [`Gerado pelo forms2apex a partir do form ${ir.form.name}.`, "Tipo: Page Export (importa paginas em uma aplicacao existente).", `Paginas: ${out.pages.map((p) => p.id).join(", ")}`])}${out.blocks.join("\n")}\n${APEX_FOOTER}`;
+  return { sql, pages: out.pages, manualSteps: manual, guide: importGuide(ir, out.pages, manual, base) };
+}
+
+export function generateApexPages(ir: IR, bp: Blueprint, results: TriggerResult[], mapBind: BindMapper, base?: ApexBase, opts: ApexPageOptions = {}): ApexPages {
   const form = ir.form.name.toUpperCase();
-  const idOf = (key: string) => {
-    const h = createHash("sha1").update(`${form}|${key}`).digest("hex");
-    return (BigInt("0x" + h.slice(0, 15)) % 9_000_000_000_000_000n + 1_000_000_000_000_000n).toString();
-  };
+  const idOf = (key: string) => exportId(form, key);
   const ref = (key: string) => `wwv_flow_imp.id(${idOf(key)})`;
   const tpl = (t?: string) => (base && t ? `wwv_flow_imp.id(${t})` : undefined);
   const T = base?.templates ?? {};
@@ -161,6 +207,8 @@ export function generateApexScript(ir: IR, bp: Blueprint, results: TriggerResult
   const requiredItems = new Set(conv.filter((x) => x.c.apexComponent === "required").map((x) => x.owner));
   const defaults = new Map<string, Assignment>();
   for (const x of conv.filter((y) => y.c.apexComponent === "item_default")) for (const a of x.c.assignments ?? []) defaults.set(a.target, a);
+  // KEY-COMMIT "commit_form; if form_success then message(...)": a mensagem vai no processo que salva.
+  const successMsg = conv.find((x) => x.name === "KEY-COMMIT" && x.c.message)?.c.message;
   const pendingButtons = new Set(results.filter((r) => r.trigger.name === "WHEN-BUTTON-PRESSED" && !r.conversion).map((r) => r.trigger.owner.toUpperCase()));
 
   const lovQuery = (name?: string) => bp.lovs.find((l) => l.name.toUpperCase() === (name ?? "").toUpperCase())?.query || undefined;
@@ -466,9 +514,21 @@ export function generateApexScript(ir: IR, bp: Blueprint, results: TriggerResult
         let bseq = 50;
         for (const it of reg.items.filter((i) => i.apexType === "BUTTON")) {
           const name = it.formsItem.split(".")[1];
-          body.push(pageButton(`${page.id}:btn:${it.formsItem}`, plugKey, bseq, name, it.label ?? humanize(name), [["button_action", s("SUBMIT")], ["button_position", s("CHANGE")]]));
+          const nav = conv.find((x) => x.owner === it.formsItem && x.name === "WHEN-BUTTON-PRESSED")?.c.navigation;
+          const target = nav ? opts.formPage?.(nav.form) : undefined;
+          const url = nav && target !== undefined ? navigationUrl(target, nav, mapBind) : undefined;
+          const action: Param[] = url
+            ? [["button_action", s("REDIRECT_PAGE")], ["button_position", s("CHANGE")], ["button_redirect_url", s(url)]]
+            : [["button_action", s("SUBMIT")], ["button_position", s("CHANGE")]];
+          body.push(pageButton(`${page.id}:btn:${it.formsItem}`, plugKey, bseq, name, it.label ?? humanize(name), action));
           bseq += 10;
           if (pendingButtons.has(it.formsItem)) manual.push(`Página ${page.id}: botão ${name} criado sem ação; o WHEN-BUTTON-PRESSED está em PENDENCIAS.md.`);
+          else if (nav && !url)
+            manual.push(
+              target === undefined
+                ? `Página ${page.id}: botão ${name} chama o form ${nav.form} (${nav.builtin}), que não está nesta migração; ligue o botão à página dele quando existir.`
+                : `Página ${page.id}: botão ${name} chama ${nav.form} com valor que não cabe na URL; configure o redirect para a página ${target} manualmente.`,
+            );
         }
 
         // Validações (itens desta região)
@@ -524,6 +584,7 @@ export function generateApexScript(ir: IR, bp: Blueprint, results: TriggerResult
               ["static_id", s("process-form")],
               ["attributes", dmlAttrs],
               ["error_display_location", s("INLINE_IN_NOTIFICATION")],
+              ["process_success_message", successMsg ? s(successMsg) : undefined],
             ]),
           );
         }
@@ -704,7 +765,10 @@ export function generateApexScript(ir: IR, bp: Blueprint, results: TriggerResult
 
     // Itens de outras conversões que o gerador não posiciona sozinho.
     for (const x of conv.filter((y) => page.regions.some((r) => r.formsBlock.toUpperCase() === blockOf(y.owner)))) {
-      if (x.c.apexComponent === "dynamic_action") manual.push(`Página ${page.id}: ${x.owner} ${x.name} pede Dynamic Action: ${x.c.description}`);
+      if (x.c.navigation && !page.regions.some((r) => r.apexType !== "interactive_grid" && r.apexType !== "interactive_report_modal" && r.items.some((i) => i.formsItem === x.owner && i.apexType === "BUTTON"))) {
+        const target = opts.formPage?.(x.c.navigation.form);
+        manual.push(`Página ${page.id}: ${x.owner} ${x.name} abre o form ${x.c.navigation.form}${target !== undefined ? ` (página ${target})` : ""}; crie um botão ou link com essa navegação.`);
+      } else if (x.c.apexComponent === "dynamic_action") manual.push(`Página ${page.id}: ${x.owner} ${x.name} pede Dynamic Action: ${x.c.description}`);
       else if (x.c.apexComponent === "computation" || (x.c.source === "ia" && x.c.apexComponent !== "validation" && x.c.apexComponent !== "nativo"))
         manual.push(`Página ${page.id}: conversão por IA de ${x.owner} ${x.name} (${x.c.apexComponent}) não foi posicionada automaticamente; aplique a partir de conversoes.json.`);
     }
@@ -734,16 +798,29 @@ export function generateApexScript(ir: IR, bp: Blueprint, results: TriggerResult
 
   for (const l of bp.lovs.filter((x) => x.query)) manual.push(`LOV ${l.name}: o APEX exige (exibição, retorno) nessa ordem; confira se "${l.query.replace(/\s+/g, " ").slice(0, 80)}" segue isso.`);
 
-  const release = base?.release ?? APEX_TARGET.release;
-  const header = `prompt --application/set_environment
+  // :GLOBAL do form: viram application items GLOBAL_X.
+  const globals = new Set<string>();
+  const scan = (code?: string | null) => code && globalsIn(code).forEach((g) => globals.add(`GLOBAL_${g}`));
+  ir.blocks.forEach((b) => scan(b.where));
+  results.forEach((r) => {
+    scan(r.conversion?.code);
+    r.conversion?.navigation?.globals.forEach((g) => globals.add(g.item));
+  });
+  if (globals.size && !opts.createsGlobals)
+    manual.push(`Crie os Application Items ${[...globals].join(", ")} (Shared Components > Application Items), que substituem as :GLOBAL do Forms.`);
+
+  return { blocks, pages: pagesOut, manualSteps: manual, globals: [...globals] };
+}
+
+/** Cabeçalho do script no formato do export (import_begin). Sem base exige apex_application_install. */
+export function apexHeader(base: ApexBase | undefined, notes: string[]): string {
+  return `prompt --application/set_environment
 set define off verify off feedback off
 whenever sqlerror exit sql.sqlcode rollback
 --------------------------------------------------------------------------------
 --
--- Gerado pelo forms2apex a partir do form ${sqlComment(ir.form.name)}.
--- Tipo: Page Export (importa paginas em uma aplicacao existente).
--- Formato: APEX ${APEX_TARGET.release} (wwv_flow_imp_page). Rode primeiro num ambiente DEV.
--- Paginas: ${pagesOut.map((p) => p.id).join(", ")}
+${notes.map((n) => `-- ${sqlComment(n)}`).join("\n")}
+-- Formato: APEX ${APEX_TARGET.release} (wwv_flow_imp). Rode primeiro num ambiente DEV.
 -- ${base ? `Base: aplicacao ${base.applicationId}, schema ${base.owner}, tema ${base.themeId ?? "?"}` : "Sem export base: defina apex_application_install antes (veja COMO_IMPORTAR.md)."}
 --
 --------------------------------------------------------------------------------
@@ -756,7 +833,7 @@ end;
 `}begin
 wwv_flow_imp.import_begin (
  p_version_yyyy_mm_dd=>'${base?.versionDate ?? APEX_TARGET.versionDate}'
-,p_release=>'${release}'
+,p_release=>'${base?.release ?? APEX_TARGET.release}'
 ,p_default_workspace_id=>${base?.workspaceId ?? 0}
 ,p_default_application_id=>${base?.applicationId ?? 0}
 ,p_default_id_offset=>${base?.idOffset ?? 0}
@@ -765,7 +842,9 @@ wwv_flow_imp.import_begin (
 end;
 /
 `;
-  const footer = `prompt --application/end_environment
+}
+
+export const APEX_FOOTER = `prompt --application/end_environment
 begin
 wwv_flow_imp.import_end(p_auto_install_sup_obj => nvl(wwv_flow_application_install.get_auto_install_sup_obj, false));
 commit;
@@ -774,11 +853,6 @@ end;
 set verify on feedback on define on
 prompt  ...done
 `;
-  if (base && !base.release.startsWith("26.")) manual.unshift(`O export base é do APEX ${base.release}; o formato gerado foi validado contra o 26.1. Importe primeiro num ambiente DEV.`);
-
-  const sql = `${header}${blocks.join("\n")}\n${footer}`;
-  return { sql, pages: pagesOut, manualSteps: manual, guide: importGuide(ir, pagesOut, manual, base) };
-}
 
 function importGuide(ir: IR, pages: ApexScript["pages"], manual: string[], base?: ApexBase): string {
   const how = base

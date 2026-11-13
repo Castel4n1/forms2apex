@@ -23,6 +23,16 @@ class ParserTest(unittest.TestCase):
         est = {i["name"]: i for i in ir["blocks"][1]["items"]}
         self.assertEqual(est["DEPOSITO"]["listValues"][1], {"label": "Filial", "value": "F"})
 
+    def test_menu(self):
+        ir = Parser().parse((ROOT / "examples" / "app_vendas" / "VENDAS_MENU.xml").read_bytes())
+        self.assertEqual(ir["kind"], "menu")
+        self.assertEqual(ir["menu"]["mainMenu"], "MENU_PRINCIPAL")
+        principal = ir["menu"]["menus"][0]["items"]
+        self.assertEqual(principal[0]["subMenu"], "MENU_CADASTROS")
+        cad = {i["name"]: i for i in ir["menu"]["menus"][1]["items"]}
+        self.assertEqual(cad["CLIENTES"]["code"], "call_form('CLIENTES');")
+        self.assertTrue(cad["SEP1"]["separator"])
+
     def test_mascara_segredo(self):
         txt, n = mask_secrets("logon('scott/tiger@prod'); senha := 'abc';")
         self.assertNotIn("tiger", txt)

@@ -6,12 +6,12 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { AiOptions } from "./ai.ts";
 import { generateApexScript, parseApexBase, type ApexBase } from "./apex.ts";
-import { convertTriggers, pendingFromProgramUnits } from "./convert.ts";
-import { diagnose } from "./diagnose.ts";
-import { enrichRegions, generateLovs, generatePackage, generateRegionQueries } from "./generate.ts";
-import { IRSchema, type IR } from "./ir.ts";
-import { bindMapper, planApplication } from "./plan.ts";
-import { resolveProfile, type RawProfile } from "./profile.ts";
+import { convertTriggers, pendingFromProgramUnits, type Pending, type TriggerResult } from "./convert.ts";
+import { diagnose, type Finding } from "./diagnose.ts";
+import { enrichRegions, generateLovs, generatePackage, generateRegionQueries, packagedUnits, packageName, qualifyCalls } from "./generate.ts";
+import { IRSchema, MenuIRSchema, type IR, type MenuIR } from "./ir.ts";
+import { bindMapper, planApplication, type Blueprint, type PlanOptions } from "./plan.ts";
+import { resolveProfile, type RawProfile, type ResolvedProfile } from "./profile.ts";
 import { decisionsReport, pendingReport, testScript, traceReport } from "./report.ts";
 
 const run = promisify(execFile);
@@ -56,18 +56,83 @@ export interface PipelineResult {
   stats: { blocks: number; items: number; triggers: number; converted: number; pending: number; blocking: number; apexPages: number; manualSteps: number; tokensIn: number; tokensOut: number };
 }
 
-export async function extractIR(xmlPath: string): Promise<IR> {
+export type Module = { kind: "form"; ir: IR } | { kind: "menu"; menu: MenuIR };
+
+/** Lê um XML do frmf2xml: form (.fmb) ou menu (.mmb). */
+export async function extractModule(xmlPath: string): Promise<Module> {
   // -E ignora PYTHONPATH e afins, mas mantém os pacotes do usuário (o -I escondia o lxml instalado com pip --user).
   const py = pythonPath();
+  let json: { kind?: string };
   try {
     const { stdout } = await run(py, ["-E", parserPath(), xmlPath], { maxBuffer: 20 * 1024 * 1024 });
-    return IRSchema.parse(JSON.parse(stdout));
+    json = JSON.parse(stdout);
   } catch (err) {
     const stderr = String((err as { stderr?: string }).stderr ?? "");
     if (/No module named 'lxml'/.test(stderr)) throw new Error(`lxml não encontrado para ${py}. Rode "npm run setup" (cria .venv com as dependências) ou defina F2A_PYTHON.`);
     if (stderr.trim()) throw new Error(stderr.trim().split("\n").slice(-1)[0]);
     throw err;
   }
+  return json.kind === "menu" ? { kind: "menu", menu: MenuIRSchema.parse(json) } : { kind: "form", ir: IRSchema.parse(json) };
+}
+
+export async function extractIR(xmlPath: string): Promise<IR> {
+  const m = await extractModule(xmlPath);
+  if (m.kind !== "form") throw new Error("O arquivo é um menu (.mmb). Menus entram no modo aplicação, junto com os forms.");
+  return m.ir;
+}
+
+// ---------- etapas de um form, reaproveitadas pelo modo aplicação ----------
+
+export interface PlannedForm {
+  findings: Finding[];
+  blueprint: Blueprint;
+  binds: ReturnType<typeof bindMapper>;
+}
+
+export function planForm(ir: IR, profile: ResolvedProfile, opts: PlanOptions = {}): PlannedForm {
+  const blueprint = planApplication(ir, profile, opts);
+  return { findings: diagnose(ir), blueprint, binds: bindMapper(blueprint) };
+}
+
+export interface ConvertedForm {
+  results: TriggerResult[];
+  pending: Pending[];
+  tokens: { input: number; output: number };
+}
+
+/**
+ * Converte triggers e program units. `units` mapeia UNIT -> PACKAGE das bibliotecas anexadas;
+ * as units do próprio form que vão para package entram automaticamente.
+ */
+export async function convertForm(
+  ir: IR,
+  planned: PlannedForm,
+  profile: ResolvedProfile,
+  ai: AiOptions | undefined,
+  onTrigger?: (r: TriggerResult) => void,
+  units: Map<string, string> = new Map(),
+): Promise<ConvertedForm> {
+  const all = new Map(units);
+  for (const u of packagedUnits(ir.programUnits)) all.set(u.name.toUpperCase(), packageName(ir.form.name));
+  const context = all.size ? `Rotinas que já estão em package no banco (chame com o prefixo): ${[...all].map(([u, pkg]) => `${u} -> ${pkg}.${u}`).join(", ")}` : undefined;
+  const conv = await convertTriggers(ir, profile, planned.binds, ai && context ? { ...ai, context } : context ? { context } : ai, { onTrigger });
+  const pending = [...conv.pending, ...pendingFromProgramUnits(ir, conv.pending.length)];
+  for (const r of conv.results) if (r.conversion?.code) r.conversion.code = qualifyCalls(r.conversion.code, all);
+  enrichRegions(planned.blueprint, conv.results, planned.binds.fn);
+  return { results: conv.results, pending, tokens: conv.tokens };
+}
+
+/** Documentos e artefatos por form (sem o script APEX). */
+export function formDocs(ir: IR, profile: ResolvedProfile, planned: PlannedForm, converted: ConvertedForm): Record<string, string> {
+  const conversions = converted.results.map((r) => ({ origem: `${r.trigger.owner} / ${r.trigger.name}`, ...r.conversion, pendencias: r.pendingIds }));
+  return {
+    "ir.json": JSON.stringify(ir, null, 2),
+    "blueprint.json": JSON.stringify(planned.blueprint, null, 2),
+    "conversoes.json": JSON.stringify(conversions, null, 2),
+    "PENDENCIAS.md": pendingReport(ir, converted.pending),
+    "RASTREABILIDADE.md": traceReport(planned.blueprint, converted.results),
+    "ROTEIRO_TESTES.md": testScript(planned.blueprint, converted.results),
+  };
 }
 
 export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
@@ -91,46 +156,42 @@ export async function runPipeline(o: PipelineOptions): Promise<PipelineResult> {
   emit({ phase: "extracao", status: "ok", message: `${ir.blocks.length} blocos, ${items} itens, ${ir.triggers.length} triggers`, stats: { blocos: ir.blocks.length, itens: items, triggers: ir.triggers.length } });
 
   emit({ phase: "classificacao", status: "rodando", message: "Diagnosticando riscos" });
-  const findings = diagnose(ir);
   let base: ApexBase | undefined;
   if (o.apexBasePath) {
     base = parseApexBase(await readFile(o.apexBasePath, "utf8"));
     emit({ phase: "classificacao", status: "ok", message: `Export base: aplicação ${base.applicationId}, APEX ${base.release}, ${base.usedPages.size} página(s) já existentes` });
   }
-  const blueprint = planApplication(ir, profile, { usedPages: base?.usedPages });
-  const binds = bindMapper(blueprint);
+  const planned = planForm(ir, profile, { usedPages: base?.usedPages });
+  const { findings, blueprint } = planned;
   emit({ phase: "classificacao", status: findings.some((f) => f.severity === "bloqueante") ? "aviso" : "ok", message: `${findings.length} risco(s) encontrado(s), ${blueprint.pages.length} página(s) planejada(s)`, stats: { riscos: findings.length, paginas: blueprint.pages.length } });
 
   emit({ phase: "conversao", status: "rodando", message: "Convertendo triggers" });
   let done = 0;
-  const conv = await convertTriggers(ir, profile, binds, o.ai, {
-    onTrigger: (r) => {
-      done += 1;
-      emit({ phase: "conversao", status: "rodando", message: `${r.trigger.owner} / ${r.trigger.name}: ${r.conversion ? `${r.conversion.apexComponent} via ${r.conversion.source}` : "pendente"}`, stats: { feitos: done, total: ir.triggers.length } });
-    },
+  const conv = await convertForm(ir, planned, profile, o.ai, (r) => {
+    done += 1;
+    emit({ phase: "conversao", status: "rodando", message: `${r.trigger.owner} / ${r.trigger.name}: ${r.conversion ? `${r.conversion.apexComponent} via ${r.conversion.source}` : "pendente"}`, stats: { feitos: done, total: ir.triggers.length } });
   });
-  const pending = [...conv.pending, ...pendingFromProgramUnits(ir, conv.pending.length)];
+  const pending = conv.pending;
   const converted = conv.results.filter((r) => r.conversion).length;
   emit({ phase: "conversao", status: pending.length ? "aviso" : "ok", message: `${converted} convertido(s), ${pending.length} pendência(s)`, stats: { convertidos: converted, pendencias: pending.length, tokensIn: conv.tokens.input, tokensOut: conv.tokens.output } });
 
   emit({ phase: "geracao", status: "rodando", message: "Gerando artefatos APEX" });
-  enrichRegions(blueprint, conv.results, binds.fn);
-  const apex = generateApexScript(ir, blueprint, conv.results, binds.fn, base);
-  const conversions = conv.results.map((r) => ({ origem: `${r.trigger.owner} / ${r.trigger.name}`, ...r.conversion, pendencias: r.pendingIds }));
+  const apex = generateApexScript(ir, blueprint, conv.results, planned.binds.fn, base);
+  const docs = formDocs(ir, profile, planned, conv);
   const files: Record<string, string> = {
-    "ir.json": JSON.stringify(ir, null, 2),
+    "ir.json": docs["ir.json"],
     "migration-profile.json": JSON.stringify(profile, null, 2),
-    "blueprint.json": JSON.stringify(blueprint, null, 2),
-    "conversoes.json": JSON.stringify(conversions, null, 2),
+    "blueprint.json": docs["blueprint.json"],
+    "conversoes.json": docs["conversoes.json"],
     [`install/01_${ir.form.name.toLowerCase()}_pkg.sql`]: generatePackage(ir),
     "install/02_lovs.sql": generateLovs(blueprint),
     "install/03_queries_regioes.sql": generateRegionQueries(blueprint),
     "install/04_apex_paginas.sql": apex.sql,
     "COMO_IMPORTAR.md": apex.guide,
-    "PENDENCIAS.md": pendingReport(ir, pending),
-    "RASTREABILIDADE.md": traceReport(blueprint, conv.results),
+    "PENDENCIAS.md": docs["PENDENCIAS.md"],
+    "RASTREABILIDADE.md": docs["RASTREABILIDADE.md"],
     "DECISOES.md": decisionsReport(profile, findings),
-    "ROTEIRO_TESTES.md": testScript(blueprint, conv.results),
+    "ROTEIRO_TESTES.md": docs["ROTEIRO_TESTES.md"],
   };
   emit({ phase: "geracao", status: "ok", message: `${Object.keys(files).length} arquivos gerados; páginas APEX ${apex.pages.map((p) => p.id).join(", ")}${apex.manualSteps.length ? `, ${apex.manualSteps.length} ajuste(s) manual(is)` : ""}` });
 

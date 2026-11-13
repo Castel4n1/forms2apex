@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Form fictício no estilo do Forms 5.0 (client/server, anos 90), para testes. Não é código de cliente.
+  Representa o XML que o frmf2xml gera DEPOIS de abrir o .fmb do Forms 5 num Forms Builder mais novo
+  (10g/11g/12c) e salvar: o frmf2xml não lê o formato binário do Forms 5 diretamente.
+  Traz vícios típicos da época: POST-CHANGE no lugar de WHEN-VALIDATE-ITEM, :SYSTEM, NAME_IN,
+  KEY-COMMIT com FORM_SUCCESS, HOST para imprimir e RUN_PRODUCT chamando o Reports.
+-->
+<Module version="50000" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="DEPTO" Title="Departamentos" FirstNavigationBlockName="DEPT">
+    <Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="go_block('DEPT');&#10;execute_query;"/>
+    <Trigger Name="KEY-COMMIT" TriggerText="commit_form;&#10;if form_success then&#10;  message('Registro gravado');&#10;end if;"/>
+    <Trigger Name="KEY-EXIT" TriggerText="exit_form(no_validate);"/>
+    <Block Name="DEPT" QueryDataSourceName="DEPT" RecordsDisplayCount="1" DatabaseBlock="true" OrderByClause="deptno">
+      <Item Name="DEPTNO" ItemType="Text Item" DataType="Number" MaximumLength="2" Prompt="Número" Required="true" PrimaryKey="true"/>
+      <Item Name="DNAME" ItemType="Text Item" DataType="Char" MaximumLength="14" Prompt="Nome">
+        <Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="if :dept.dname is null then&#10;  message('Informe o nome do departamento');&#10;  raise form_trigger_failure;&#10;end if;"/>
+      </Item>
+      <Item Name="LOC" ItemType="Text Item" DataType="Char" MaximumLength="13" Prompt="Local"/>
+      <Item Name="BT_IMPRIME" ItemType="Push Button" Label="Imprimir" DatabaseItem="false">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="run_product(reports, 'DEPTO_REL', synchronous, runtime, filesystem, null, null);"/>
+      </Item>
+    </Block>
+    <Block Name="EMP" QueryDataSourceName="EMP" RecordsDisplayCount="5" WhereClause="deptno = :dept.deptno" OrderByClause="ename">
+      <Trigger Name="POST-QUERY" TriggerText="select ename into :emp.nome_chefe from emp where empno = :emp.mgr;"/>
+      <Item Name="EMPNO" ItemType="Text Item" DataType="Number" MaximumLength="4" Prompt="Matrícula" PrimaryKey="true"/>
+      <Item Name="ENAME" ItemType="Text Item" DataType="Char" MaximumLength="10" Prompt="Nome" Required="true"/>
+      <Item Name="JOB" ItemType="Text Item" DataType="Char" MaximumLength="9" Prompt="Cargo"/>
+      <Item Name="MGR" ItemType="Text Item" DataType="Number" MaximumLength="4" Prompt="Chefe">
+        <Trigger Name="POST-CHANGE" TriggerText="if name_in('system.record_status') = 'CHANGED' then&#10;  select ename into :emp.nome_chefe from emp where empno = :emp.mgr;&#10;end if;"/>
+      </Item>
+      <Item Name="NOME_CHEFE" ItemType="Display Item" DataType="Char" DatabaseItem="false"/>
+      <Item Name="SAL" ItemType="Text Item" DataType="Number" Prompt="Salário">
+        <Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="if :emp.sal &lt;= 0 then&#10;  message('Salário deve ser maior que zero');&#10;  raise form_trigger_failure;&#10;end if;"/>
+      </Item>
+      <Item Name="HIREDATE" ItemType="Text Item" DataType="Date" Prompt="Admissão" InitializeValue="$$DATE$$"/>
+      <Item Name="DEPTNO" ItemType="Text Item" DataType="Number" Visible="false"/>
+    </Block>
+    <Canvas Name="CV_DEPTO" CanvasType="Content"/>
+  </FormModule>
+</Module>

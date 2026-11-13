@@ -1,6 +1,10 @@
 // Limites da demo pública. Ajuste por variável de ambiente.
 export const LIMITS = {
   maxBytes: Number(process.env.F2A_MAX_BYTES ?? 2 * 1024 * 1024),
+  /** Export da aplicação APEX de destino (fNNN.sql) costuma ser bem maior que um form. */
+  maxBaseBytes: Number(process.env.F2A_MAX_BASE_BYTES ?? 40 * 1024 * 1024),
+  maxFiles: Number(process.env.F2A_MAX_FILES ?? 60),
+  maxForms: Number(process.env.F2A_MAX_FORMS ?? 40),
   maxBlocks: Number(process.env.F2A_MAX_BLOCKS ?? 10),
   maxTriggers: Number(process.env.F2A_MAX_TRIGGERS ?? 60),
   perIpPerHour: Number(process.env.F2A_RATE_PER_HOUR ?? 10),

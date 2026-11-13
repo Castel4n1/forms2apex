@@ -45,6 +45,35 @@ wwv_flow_imp_shared.create_theme(
 );
 end;
 /
+prompt --application/shared_components/navigation/lists/navigation_menu
+begin
+wwv_flow_imp_shared.create_list(
+ p_id=>wwv_flow_imp.id(300)
+,p_name=>'Navigation Menu'
+,p_static_id=>'navigation-menu'
+,p_version_scn=>'1'
+);
+wwv_flow_imp_shared.create_list_item(
+ p_id=>wwv_flow_imp.id(301)
+,p_list_item_display_sequence=>10
+,p_list_item_link_text=>'Home'
+,p_static_id=>'home'
+,p_list_item_link_target=>'f?p=&APP_ID.:1:&SESSION.::&DEBUG.:::'
+,p_list_item_icon=>'fa-home'
+,p_list_item_current_type=>'TARGET_PAGE'
+);
+end;
+/
+prompt --application/shared_components/logic/application_items/global_cliente_id
+begin
+wwv_flow_imp_shared.create_flow_item(
+ p_id=>wwv_flow_imp.id(302)
+,p_name=>'GLOBAL_CLIENTE_ID'
+,p_protection_level=>'N'
+,p_version_scn=>'1'
+);
+end;
+/
 prompt --application/pages/page_00010
 begin
 wwv_flow_imp_page.create_page(
@@ -61,3 +90,11 @@ wwv_flow_imp_page.create_page(
 );
 end;
 /
+prompt --application/end_environment
+begin
+wwv_flow_imp.import_end(p_auto_install_sup_obj => nvl(wwv_flow_application_install.get_auto_install_sup_obj, false));
+commit;
+end;
+/
+set verify on feedback on define on
+prompt  ...done

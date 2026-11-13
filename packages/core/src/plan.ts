@@ -57,6 +57,8 @@ export interface Blueprint {
 export interface PlanOptions {
   /** Páginas já existentes na aplicação APEX de destino: o plano escolhe uma faixa livre. */
   usedPages?: Set<number>;
+  /** Primeira página do form (modo aplicação: cada form recebe sua faixa). */
+  startPage?: number;
 }
 
 const ITEM_TYPES: Record<string, string> = {
@@ -146,7 +148,7 @@ function firstFreePage(needed: number, used?: Set<number>): number {
 export function planApplication(ir: IR, profile: ResolvedProfile, opts: PlanOptions = {}): Blueprint {
   const pages: PlannedPage[] = [];
   const pageOfBlock = new Map<string, PlannedPage>();
-  let nextId = firstFreePage(ir.blocks.length * 10 + 10, opts.usedPages);
+  let nextId = opts.startPage ?? firstFreePage(ir.blocks.length * 10 + 10, opts.usedPages);
 
   // Blocos mestres (sem master) viram páginas; detalhes entram na página do mestre.
   const ordered = [...ir.blocks].sort((a, b) => Number(Boolean(masterLink(a, ir.blocks))) - Number(Boolean(masterLink(b, ir.blocks))));
@@ -225,6 +227,17 @@ export function planApplication(ir: IR, profile: ResolvedProfile, opts: PlanOpti
           : "Manter ordem dos campos e navegação do Forms, com componentes e espaçamento nativos do APEX.",
     ],
   };
+}
+
+/** Página de entrada do form: a consulta (Interactive Report) se houver, senão a primeira página. */
+export function entryPage(bp: Blueprint): number | undefined {
+  const first = bp.pages[0];
+  return first ? (first.listPageId ?? first.id) : undefined;
+}
+
+/** Páginas que o plano de um form ocupa (para reservar faixa no modo aplicação). */
+export function pagesNeeded(ir: IR): number {
+  return ir.blocks.length * 10 + 10;
 }
 
 export function bindMapper(bp: Blueprint) {

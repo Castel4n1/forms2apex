@@ -103,11 +103,14 @@ function checkScript(sql: string) {
   assert.equal(defined.size, (sql.match(/^ p_id=>wwv_flow_imp\.id\(/gm) ?? []).length, "id duplicado");
 }
 
-test("exemplo PRODUTOS: regras cobrem 14 de 16 triggers e o script APEX é consistente", async () => {
+test("exemplo PRODUTOS: regras cobrem 15 de 16 triggers e o script APEX é consistente", async () => {
   const out = await mkdtemp(join(tmpdir(), "f2a-"));
   const r = await runPipeline({ xmlPath: "examples/produtos.xml", outDir: out });
   assert.equal(r.stats.triggers, 16);
-  assert.equal(r.stats.converted, 14);
+  assert.equal(r.stats.converted, 15);
+  // CALL_FORM de um form que não veio: botão sem destino vira ajuste manual, :GLOBAL vira application item
+  assert.match(r.files["COMO_IMPORTAR.md"], /chama o form HISTORICO \(CALL_FORM\), que não está nesta migração/);
+  assert.match(r.files["COMO_IMPORTAR.md"], /Application Items GLOBAL_PRODUTO_ID/);
   assert.equal(r.stats.blocking, 0);
   const sql = r.files["install/04_apex_paginas.sql"];
   checkScript(sql);

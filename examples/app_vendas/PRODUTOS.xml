@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Form fictício, escrito para testes. Não contém código de cliente. -->
+<Module version="120000" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="PRODUTOS" Title="Cadastro de Produtos" FirstNavigationBlockName="PRD">
+    <Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="set_window_property(forms_mdi_window, window_state, maximize);&#10;go_block('PRD');&#10;execute_query;"/>
+    <Trigger Name="KEY-EXIT" TriggerText="exit_form;"/>
+    <Trigger Name="ON-ERROR" TriggerText="message('Erro: '||error_text);"/>
+    <Block Name="PRD" QueryDataSourceName="PRODUTOS" RecordsDisplayCount="1" DatabaseBlock="true" WhereClause="ativo = 'S'" OrderByClause="descricao">
+      <Trigger Name="POST-QUERY" TriggerText="begin&#10;  select nome into :prd.desc_categoria from categorias where id = :prd.categoria_id;&#10;exception&#10;  when no_data_found then :prd.desc_categoria := null;&#10;end;&#10;begin&#10;  select razao_social into :prd.desc_fornecedor from fornecedores f where f.id = :prd.fornecedor_id;&#10;exception when others then null;&#10;end;"/>
+      <Trigger Name="PRE-INSERT" TriggerText="select produtos_seq.nextval into :prd.id from dual;&#10;:prd.usuario_alt := user;&#10;:prd.dt_alt := sysdate;"/>
+      <Trigger Name="PRE-UPDATE" TriggerText=":prd.usuario_alt := user;&#10;:prd.dt_alt := sysdate;"/>
+      <Trigger Name="WHEN-CREATE-RECORD" TriggerText=":prd.ativo := 'S';&#10;:prd.unidade := 'UN';"/>
+      <Trigger Name="KEY-DELREC" TriggerText="delete_record;"/>
+      <Trigger Name="WHEN-VALIDATE-RECORD" TriggerText="if :prd.preco_venda &lt; :prd.preco_custo then&#10;  message('Preço de venda abaixo do custo');&#10;  raise form_trigger_failure;&#10;end if;"/>
+      <Item Name="ID" ItemType="Text Item" DataType="Number" PrimaryKey="true" Prompt="Código"/>
+      <Item Name="CODIGO" ItemType="Text Item" DataType="Char" MaximumLength="20" Prompt="Código interno">
+        <Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="if :prd.codigo is null then&#10;  message('Informe o código');&#10;  raise form_trigger_failure;&#10;end if;"/>
+      </Item>
+      <Item Name="DESCRICAO" ItemType="Text Item" DataType="Char" MaximumLength="400" Prompt="Descrição" Required="true"/>
+      <Item Name="CATEGORIA_ID" ItemType="Text Item" DataType="Number" Prompt="Categoria" LovName="LOV_CATEGORIAS">
+        <Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="select nome into :prd.desc_categoria from categorias where id = :prd.categoria_id;"/>
+      </Item>
+      <Item Name="DESC_CATEGORIA" ItemType="Display Item" DataType="Char" DatabaseItem="false"/>
+      <Item Name="FORNECEDOR_ID" ItemType="Text Item" DataType="Number" Prompt="Fornecedor" LovName="LOV_FORNECEDORES"/>
+      <Item Name="DESC_FORNECEDOR" ItemType="Display Item" DataType="Char" DatabaseItem="false"/>
+      <Item Name="UNIDADE" ItemType="List Item" DataType="Char" MaximumLength="2" Prompt="Unidade">
+        <ListItemElement Name="Unidade" Value="UN"/>
+        <ListItemElement Name="Quilo" Value="KG"/>
+        <ListItemElement Name="Caixa" Value="CX"/>
+      </Item>
+      <Item Name="PRECO_CUSTO" ItemType="Text Item" DataType="Number" Prompt="Preço de custo"/>
+      <Item Name="PRECO_VENDA" ItemType="Text Item" DataType="Number" Prompt="Preço de venda">
+        <Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="if :prd.preco_venda &lt; 0 then&#10;  message('Preço não pode ser negativo');&#10;  raise form_trigger_failure;&#10;end if;"/>
+      </Item>
+      <Item Name="ATIVO" ItemType="Check Box" DataType="Char" Prompt="Ativo" CheckedValue="S" UncheckedValue="N"/>
+      <Item Name="DT_CADASTRO" ItemType="Text Item" DataType="Date" Prompt="Cadastro" InitializeValue="$$DATE$$"/>
+      <Item Name="USUARIO_ALT" ItemType="Text Item" DataType="Char" MaximumLength="30" Visible="false"/>
+      <Item Name="DT_ALT" ItemType="Text Item" DataType="Date" Visible="false"/>
+      <Item Name="BT_HISTORICO" ItemType="Push Button" Label="Histórico" DatabaseItem="false">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText=":global.produto_id := :prd.id;&#10;call_form('HISTORICO', no_hide);"/>
+      </Item>
+      <Item Name="BT_RECALCULA" ItemType="Push Button" Label="Recalcular preço" DatabaseItem="false">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="declare&#10;  cursor c is select custo from compras where produto_id = :prd.id order by data desc;&#10;  v number;&#10;begin&#10;  open c; fetch c into v; close c;&#10;  if v is not null then&#10;    :prd.preco_custo := v;&#10;    :prd.preco_venda := round(v * 1.3, 2);&#10;  end if;&#10;end;"/>
+      </Item>
+    </Block>
+    <Block Name="ESTOQUE" QueryDataSourceName="ESTOQUE" RecordsDisplayCount="8" WhereClause="produto_id = :prd.id" OrderByClause="deposito">
+      <Trigger Name="PRE-INSERT" TriggerText="select estoque_seq.nextval into :estoque.id from dual;&#10;:estoque.usuario_alt := user;"/>
+      <Item Name="ID" ItemType="Text Item" DataType="Number" PrimaryKey="true" Visible="false"/>
+      <Item Name="PRODUTO_ID" ItemType="Text Item" DataType="Number" Visible="false"/>
+      <Item Name="DEPOSITO" ItemType="Radio Group" DataType="Char" Prompt="Depósito">
+        <RadioButton Name="RB_MATRIZ" Label="Matriz" RadioButtonValue="M"/>
+        <RadioButton Name="RB_FILIAL" Label="Filial" RadioButtonValue="F"/>
+      </Item>
+      <Item Name="QUANTIDADE" ItemType="Text Item" DataType="Number" Prompt="Quantidade" Required="true">
+        <Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="if :estoque.quantidade &lt;= 0 then&#10;  message('Quantidade inválida');&#10;  raise form_trigger_failure;&#10;end if;"/>
+      </Item>
+      <Item Name="DT_MOV" ItemType="Text Item" DataType="Date" Prompt="Data" InitializeValue="$$DATE$$"/>
+      <Item Name="USUARIO_ALT" ItemType="Text Item" DataType="Char" MaximumLength="30" Visible="false"/>
+    </Block>
+    <LOV Name="LOV_CATEGORIAS" RecordGroupName="RG_CATEGORIAS" Title="Categorias"/>
+    <LOV Name="LOV_FORNECEDORES" RecordGroupName="RG_FORNECEDORES" Title="Fornecedores"/>
+    <RecordGroup Name="RG_CATEGORIAS" RecordGroupQuery="select nome, id from categorias order by nome"/>
+    <RecordGroup Name="RG_FORNECEDORES" RecordGroupQuery="select razao_social, id from fornecedores where ativo = 'S' order by 1"/>
+    <ProgramUnit Name="EXPORTA_CSV" ProgramUnitType="Procedure" ProgramUnitText="procedure exporta_csv is&#10;  f text_io.file_type;&#10;begin&#10;  f := text_io.fopen('c:\temp\produtos.csv', 'w');&#10;  text_io.put_line(f, :prd.codigo);&#10;  text_io.fclose(f);&#10;end;"/>
+    <ProgramUnit Name="MARGEM" ProgramUnitType="Function" ProgramUnitText="function margem(p_custo number, p_venda number) return number is&#10;begin&#10;  if nvl(p_custo,0) = 0 then return null; end if;&#10;  return round((p_venda - p_custo) / p_custo * 100, 2);&#10;end;"/>
+    <Canvas Name="CV_PRODUTO" CanvasType="Content"/>
+  </FormModule>
+</Module>

@@ -43,13 +43,26 @@ function header(code: string): string {
   return m ? m[1].replace(/\s+/g, " ").trim() : "";
 }
 
+type Unit = IR["programUnits"][number];
+
+/** Nome do package que recebe as program units de um form ou de uma biblioteca. */
+export const packageName = (module: string) => `${module.toUpperCase()}_PKG`.slice(0, 128);
+
+/** Units que compilam fora do Forms e entram no package (as demais ficam comentadas até resolver a pendência). */
+export function packagedUnits(units: Unit[]): Unit[] {
+  return units.filter((p) => /^(function|procedure)$/i.test(p.kind) && !programUnitIssues(p).reasons.length && header(p.code));
+}
+
 export function generatePackage(ir: IR): string {
-  const pkg = `${ir.form.name.toUpperCase()}_PKG`.slice(0, 128);
-  // Só entram no package as units que compilam fora do Forms; as demais ficam comentadas até resolver a pendência.
-  const units = ir.programUnits.filter((p) => /^(function|procedure)$/i.test(p.kind) && !programUnitIssues(p).reasons.length && header(p.code));
+  return generateUnitsPackage(ir.form.name, `form ${ir.form.name}`, ir.programUnits);
+}
+
+export function generateUnitsPackage(module: string, origin: string, all: Unit[]): string {
+  const pkg = packageName(module);
+  const units = packagedUnits(all);
   const spec = units.map((u) => `  ${header(u.code)};`).join("\n");
   const body = units.map((u) => `  ${u.code.split("\n").join("\n  ")}`).join("\n\n");
-  const skipped = ir.programUnits
+  const skipped = all
     .filter((p) => !units.includes(p))
     .map((p) => {
       const why = programUnitIssues(p).reasons.join("; ") || `tipo ${p.kind} não vai para package`;
@@ -57,7 +70,7 @@ export function generatePackage(ir: IR): string {
     })
     .join("\n\n");
   const head = `set define off
--- Gerado pelo forms2apex a partir do form ${ir.form.name}
+-- Gerado pelo forms2apex a partir do ${origin}
 -- Revise PENDENCIAS.md antes de compilar.
 ${skipped ? `\n${skipped}\n` : ""}`;
   if (!units.length) return `${head}\n-- Nenhuma program unit pronta para package; nada a compilar.\n`;
@@ -72,6 +85,25 @@ ${body}
 end ${pkg};
 /
 `;
+}
+
+/**
+ * Chamadas a program units que foram para package passam a usar o nome qualificado (PKG.UNIT),
+ * fora de literais e sem mexer em quem já está qualificado.
+ */
+export function qualifyCalls(code: string, units: Map<string, string>): string {
+  if (!units.size) return code;
+  return code
+    .split(/('(?:[^']|'')*')/)
+    .map((part, i) =>
+      i % 2
+        ? part
+        : part.replace(/(?<![\w.$#])(\w+)(\s*\()/g, (m, name: string, paren: string) => {
+            const pkg = units.get(name.toUpperCase());
+            return pkg ? `${pkg}.${name}${paren}` : m;
+          }),
+    )
+    .join("");
 }
 
 export function generateLovs(bp: Blueprint): string {

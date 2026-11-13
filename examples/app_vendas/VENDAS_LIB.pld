@@ -1,0 +1,25 @@
+/* Biblioteca VENDAS_LIB (.pll convertida para texto com frmcmp script=yes). Fictícia, para testes. */
+FUNCTION calc_desconto(p_valor NUMBER, p_pct NUMBER) RETURN NUMBER IS
+BEGIN
+  IF p_valor IS NULL THEN
+    RETURN NULL;
+  END IF;
+  RETURN ROUND(p_valor * (1 - NVL(p_pct, 0) / 100), 2);
+END;
+
+FUNCTION dias_uteis(p_ini DATE, p_fim DATE) RETURN NUMBER IS
+  v NUMBER := 0;
+BEGIN
+  FOR i IN 0 .. TRUNC(p_fim) - TRUNC(p_ini) LOOP
+    IF TO_CHAR(p_ini + i, 'D') NOT IN ('1', '7') THEN
+      v := v + 1;
+    END IF;
+  END LOOP;
+  RETURN v;
+END;
+
+PROCEDURE avisa(p_msg VARCHAR2) IS
+BEGIN
+  message(p_msg);
+  synchronize;
+END;

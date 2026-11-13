@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Menu da aplicação de exemplo VENDAS (.mmb pelo frmf2xml). Fictício, para testes. -->
+<Module version="120000" xmlns="http://xmlns.oracle.com/Forms">
+  <MenuModule Name="VENDAS_MENU" MainMenu="MENU_PRINCIPAL">
+    <Menu Name="MENU_PRINCIPAL">
+      <MenuItem Name="CADASTROS" Label="Cadastros" CommandType="Menu" SubMenuName="MENU_CADASTROS"/>
+      <MenuItem Name="MOVIMENTO" Label="Movimento" CommandType="Menu" SubMenuName="MENU_MOVIMENTO"/>
+      <MenuItem Name="RELATORIOS" Label="Relatórios" CommandType="Menu" SubMenuName="MENU_RELATORIOS"/>
+      <MenuItem Name="SAIR" Label="Sair" CommandType="PL/SQL" MenuItemCode="exit_form;"/>
+    </Menu>
+    <Menu Name="MENU_CADASTROS">
+      <MenuItem Name="CLIENTES" Label="Clientes" CommandType="PL/SQL" MenuItemCode="call_form('CLIENTES');"/>
+      <MenuItem Name="PRODUTOS" Label="Produtos" CommandType="PL/SQL" MenuItemCode="call_form('PRODUTOS');"/>
+      <MenuItem Name="SEP1" MenuItemType="Separator" CommandType="Null"/>
+      <MenuItem Name="DEPTOS" Label="Departamentos" CommandType="PL/SQL" MenuItemCode="new_form('DEPTO');"/>
+    </Menu>
+    <Menu Name="MENU_MOVIMENTO">
+      <MenuItem Name="PEDIDOS" Label="Pedidos" CommandType="PL/SQL" MenuItemCode=":global.cliente_id := null;&#10;call_form('PEDIDOS');"/>
+      <MenuItem Name="FECHAMENTO" Label="Fechamento do mês" CommandType="PL/SQL" MenuItemCode="call_form('FECHAMENTO');"/>
+    </Menu>
+    <Menu Name="MENU_RELATORIOS">
+      <MenuItem Name="REL_VENDAS" Label="Vendas do mês" CommandType="PL/SQL" MenuItemCode="run_product(reports, 'VENDAS_MES', asynchronous, runtime, filesystem, null, null);"/>
+    </Menu>
+  </MenuModule>
+</Module>

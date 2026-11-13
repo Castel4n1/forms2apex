@@ -8,8 +8,8 @@ import { applyRules, resolveProfile, runPipeline, scanCode, translateBinds } fro
 const t = (name: string, code: string) => ({ name, scope: "item" as const, owner: "CLI.CPF", code });
 const map = (b: string, i: string) => `P10_${i}`;
 
-test("binds :BLOCO.ITEM viram itens de página, :GLOBAL fica", () => {
-  assert.equal(translateBinds("x(:cli.cpf) and :global.y", map), "x(:P10_CPF) and :global.y");
+test("binds :BLOCO.ITEM viram itens de página, :GLOBAL vira application item", () => {
+  assert.equal(translateBinds("x(:cli.cpf) and :global.y and :system.z", map), "x(:P10_CPF) and :GLOBAL_Y and :system.z");
 });
 
 test("validação booleana vira validation APEX", () => {

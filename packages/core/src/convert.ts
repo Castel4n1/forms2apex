@@ -14,6 +14,10 @@ export interface Pending {
   originalCode: string;
   suggestion: string;
   status: "Aberto";
+  /** Dúvidas abertas devolvidas pela IA, para o documento de dúvidas de regra. */
+  questions?: string[];
+  /** Risco do diagnóstico que gerou a pendência (HOST, GLOBAL...), "SEM_REGRA", "IA" ou "PROGRAM_UNIT". */
+  kind?: string;
 }
 
 export interface TriggerResult {
@@ -59,35 +63,38 @@ export async function convertTriggers(
     // 1) Riscos bloqueantes nunca são convertidos automaticamente.
     const blocking = findings.find((f) => f.severity === "bloqueante");
     if (blocking) {
-      result.pendingIds.push(addPending({ origin, severity: "bloqueante", reason: blocking.reason, originalCode: t.code, suggestion: blocking.suggestion }));
+      result.pendingIds.push(addPending({ origin, severity: "bloqueante", reason: blocking.reason, originalCode: t.code, suggestion: blocking.suggestion, kind: blocking.riskId }));
     } else {
       // 2) Regra determinística; 3) IA; 4) pendência.
       let conv = applyRules(t, mapBind.fn);
       let questions: string[] = [];
       if (!conv && useAi) {
         try {
-          const r = await convertWithAi(t, mapBind.map, ai);
+          // uma nova tentativa quando a resposta vem sem JSON válido
+          const r = await convertWithAi(t, mapBind.map, ai).catch(() => convertWithAi(t, mapBind.map, ai));
           conv = r.conversion;
           questions = r.openQuestions;
           tokens.input += r.usage.input;
           tokens.output += r.usage.output;
         } catch (err) {
-          result.pendingIds.push(addPending({ origin, severity: "media", reason: `IA não retornou resultado válido (${(err as Error).message.slice(0, 120)})`, originalCode: t.code, suggestion: "Converter manualmente" }));
+          result.pendingIds.push(addPending({ origin, severity: "media", reason: `IA não retornou resultado válido (${(err as Error).message.slice(0, 120)})`, originalCode: t.code, suggestion: "Converter manualmente", kind: "IA" }));
         }
       }
       if (conv) {
         result.conversion = conv;
         if (conv.confidence < MIN_CONFIDENCE || questions.length) {
-          result.pendingIds.push(addPending({ origin, severity: "media", reason: `Conversão com confiança ${conv.confidence.toFixed(2)}${questions.length ? `; dúvidas: ${questions.join("; ")}` : ""}`, originalCode: t.code, suggestion: "Revisar a conversão sugerida antes de publicar" }));
+          result.pendingIds.push(addPending({ origin, severity: "media", reason: `Conversão com confiança ${conv.confidence.toFixed(2)}${questions.length ? `; dúvidas: ${questions.join("; ")}` : ""}`, originalCode: t.code, suggestion: "Revisar a conversão sugerida antes de publicar", kind: "REVISAR", questions: questions.length ? questions : undefined }));
         }
       } else if (!result.pendingIds.length) {
-        result.pendingIds.push(addPending({ origin, severity: "alta", reason: useAi ? "Sem regra e sem conversão por IA" : "Nenhuma regra determinística cobre este trigger (IA desativada)", originalCode: t.code, suggestion: "Converter manualmente ou habilitar IA" }));
+        result.pendingIds.push(addPending({ origin, severity: "alta", reason: useAi ? "Sem regra e sem conversão por IA" : "Nenhuma regra determinística cobre este trigger (IA desativada)", originalCode: t.code, suggestion: "Converter manualmente ou habilitar IA", kind: "SEM_REGRA" }));
       }
     }
 
     // Riscos não bloqueantes também viram pendência informativa para não se perderem.
-    for (const f of findings.filter((x) => x.severity !== "bloqueante")) {
-      result.pendingIds.push(addPending({ origin, severity: f.severity, reason: f.reason, originalCode: t.code, suggestion: f.suggestion }));
+    // Navegação e :GLOBAL resolvidas pela regra de navegação não precisam de pendência.
+    const covered = result.conversion?.navigation ? new Set(["NAVEGACAO_FORMS", "GLOBAL"]) : new Set<string>();
+    for (const f of findings.filter((x) => x.severity !== "bloqueante" && !covered.has(x.riskId))) {
+      result.pendingIds.push(addPending({ origin, severity: f.severity, reason: f.reason, originalCode: t.code, suggestion: f.suggestion, kind: f.riskId }));
     }
 
     results.push(result);
@@ -120,6 +127,7 @@ export function pendingFromProgramUnits(ir: IR, startAt: number): Pending[] {
         originalCode: p.code,
         suggestion: "Ajustar antes de compilar o package",
         status: "Aberto",
+        kind: findings.find((f) => f.reason === reason)?.riskId ?? "PROGRAM_UNIT",
       });
     }
   }

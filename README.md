@@ -2,7 +2,7 @@
 
 Migrador open source de **Oracle Forms para Oracle APEX**, com interface que mostra a migração acontecendo, pré-orientação obrigatória e relatório de regras pendentes.
 
-> Status: v0.2. Extração, diagnóstico, regras determinísticas, plano de páginas, SQL, relatórios e **script de import de páginas APEX 26.1** funcionam. O script segue o formato de um export real do APEX 26.1, mas ainda precisa ser validado em importação num ambiente DEV.
+> Status: v0.3. Migra **um form ou uma aplicação Forms inteira** (forms, menu e bibliotecas) para **uma aplicação APEX 26.1**, com menu, navegação entre forms, application items e o roteiro do que falta. O script segue o formato de um export real do APEX 26.1, mas ainda precisa ser validado em importação num ambiente DEV.
 
 ## Como funciona
 
@@ -12,6 +12,33 @@ Migrador open source de **Oracle Forms para Oracle APEX**, com interface que mos
 4. **Conversão**: regra determinística primeiro, IA (Claude) só se você habilitar e nenhuma regra cobrir.
 5. **Geração**: blueprint das páginas, package com program units, LOVs, queries das regiões e `install/04_apex_paginas.sql` (Page Export do APEX 26.1: consulta em Interactive Report, formulário mestre, detalhe em Interactive Grid, validações, processos e defaults).
 6. **Relatórios**: `PENDENCIAS.md`, `RASTREABILIDADE.md`, `DECISOES.md`, `ROTEIRO_TESTES.md`, `COMO_IMPORTAR.md` (passo a passo do import e ajustes manuais).
+
+## Aplicação inteira
+
+Passe uma pasta (ou vários arquivos) em vez de um form:
+
+```bash
+npm run migrate -- examples/app_vendas --out output/vendas [--apex-base f100.sql]
+```
+
+| Entra (Forms) | Sai (APEX) |
+| --- | --- |
+| Todos os forms (`.xml` do frmf2xml) | Uma aplicação: cada form ganha sua faixa de páginas (100, 200...) |
+| Menu (`.mmb` em `.xml` pelo frmf2xml) | Navigation Menu com a mesma árvore |
+| `CALL_FORM`, `OPEN_FORM`, `NEW_FORM` | Botões "Redirect to Page" para a página do form chamado |
+| `:GLOBAL.X` | Application item `GLOBAL_X`, passado na URL entre páginas |
+| Bibliotecas (`.pll` em texto: `frmcmp module=LIB.pll module_type=library script=yes` gera o `.pld`) | Package `LIB_PKG`; chamadas nos forms ficam `LIB_PKG.ROTINA` |
+
+Com `--apex-base`, o resultado é o **export completo da aplicação** (`install/03_fNNN_aplicacao.sql`): o tema, o menu e os itens da aplicação de destino, mais as páginas dos forms. Sem base, é um script de componentes para importar numa aplicação existente.
+
+Documentos para fechar as arestas:
+
+- `PROXIMOS_PASSOS.md`: onde a migração parou (por form), ordem de instalação, ajustes manuais, testes e checklist antes de publicar.
+- `DUVIDAS_DE_REGRA.md`: cada ponto que a ferramenta não decidiu vira uma pergunta para quem conhece o negócio, com motivo, sugestão, código original e espaço para a resposta. Junta pendências dos forms, perguntas da IA, forms chamados que não vieram e itens de menu sem destino.
+- `MAPA_DA_APLICACAO.md`: forms e páginas, árvore do menu, navegação entre forms, application items (onde são preenchidos e lidos) e bibliotecas.
+- `install/instalar_tudo.sql`: bibliotecas, packages e aplicação na ordem certa.
+
+Na interface web, selecione vários arquivos (ou "Usar aplicação de exemplo") e baixe tudo num `.zip`.
 
 ## Começando
 
@@ -46,7 +73,9 @@ frmf2xml MEU_FORM.fmb
 ## Exemplos
 
 - `examples/clientes.xml`: mestre-detalhe mínimo, com HOST bloqueante.
-- `examples/produtos.xml`: auditoria, valores padrão, listas, radio, checkbox S/N, lookups com exception, validações, botões com `CALL_FORM`, `TEXT_IO` e cursor (as regras cobrem 14 de 16 triggers sem IA).
+- `examples/produtos.xml`: auditoria, valores padrão, listas, radio, checkbox S/N, lookups com exception, validações, botões com `CALL_FORM`, `TEXT_IO` e cursor (as regras cobrem 15 de 16 triggers sem IA).
+- `examples/forms5_departamentos.xml`: vícios do Forms 5 (`POST-CHANGE`, `NAME_IN`, `RUN_PRODUCT`, `COMMIT_FORM` com aviso).
+- `examples/app_vendas/`: aplicação completa com 5 forms que se chamam, menu e biblioteca (44 de 50 triggers por regra; 49 com IA).
 
 Ambos são fictícios. Código de cliente nunca entra em `examples/`.
 

@@ -39,6 +39,16 @@ export interface Conversion {
   message?: string;
   lookups?: Lookup[];
   assignments?: Assignment[];
+  /** Navegação para outro form (CALL_FORM/OPEN_FORM/NEW_FORM): o modo aplicação liga à página do form chamado. */
+  navigation?: Navigation;
+}
+
+/** Chamada de outro form, com as :GLOBAL preenchidas antes da chamada. */
+export interface Navigation {
+  form: string;
+  builtin: "CALL_FORM" | "OPEN_FORM" | "NEW_FORM";
+  /** Application items (GLOBAL_X) e o valor: bind :BLOCO.ITEM, literal ou null. */
+  globals: { item: string; value: { bind: string } | { literal: string } | { null: true } }[];
 }
 
 export type BindMapper = (block: string, item: string) => string;
@@ -51,13 +61,46 @@ function outsideQuotes(code: string, fn: (chunk: string) => string): string {
     .join("");
 }
 
-/** Troca :BLOCO.ITEM pelo item de página APEX (:P10_ITEM). */
+/** :GLOBAL.X do Forms vira o application item GLOBAL_X. */
+export const globalItem = (name: string) => `GLOBAL_${name.toUpperCase()}`;
+
+/** Troca :BLOCO.ITEM pelo item de página APEX (:P10_ITEM) e :GLOBAL.X pelo application item :GLOBAL_X. */
 export function translateBinds(code: string, mapBind: BindMapper): string {
   return outsideQuotes(code, (chunk) =>
-    chunk.replace(/:(\w+)\.(\w+)/g, (match, block: string, item: string) =>
-      ["global", "system", "parameter"].includes(block.toLowerCase()) ? match : `:${mapBind(block.toUpperCase(), item.toUpperCase())}`,
-    ),
+    chunk.replace(/:(\w+)\.(\w+)/g, (match, block: string, item: string) => {
+      const b = block.toLowerCase();
+      if (b === "global") return `:${globalItem(item)}`;
+      return b === "system" || b === "parameter" ? match : `:${mapBind(block.toUpperCase(), item.toUpperCase())}`;
+    }),
   );
+}
+
+/** Nomes das :GLOBAL usadas num trecho de código (sem repetição, em maiúsculas). */
+export function globalsIn(code: string): string[] {
+  const out = new Set<string>();
+  outsideQuotes(code, (chunk) => {
+    for (const m of chunk.matchAll(/:global\.(\w+)/gi)) out.add(m[1].toUpperCase());
+    return chunk;
+  });
+  return [...out];
+}
+
+const NAV_CALL = /^(call_form|open_form|new_form)\s*\(\s*'(\w+)'\s*(?:,[^()]*)?\)$/i;
+const NAV_GLOBAL = /^:global\.(\w+)\s*:=\s*(?::(\w+)\.(\w+)|'((?:[^']|'')*)'|(-?\d+(?:\.\d+)?)|(null))$/i;
+
+/** Código que só preenche :GLOBAL simples e chama outro form. Usado em botões e itens de menu. */
+export function parseNavigation(code: string): Navigation | null {
+  const sts = splitStatements(norm(code));
+  const last = sts.pop()?.match(NAV_CALL);
+  if (!last) return null;
+  const globals: Navigation["globals"] = [];
+  for (const st of sts) {
+    const g = st.match(NAV_GLOBAL);
+    if (!g) return null;
+    const value: Navigation["globals"][number]["value"] = g[2] ? { bind: up(g[2], g[3]) } : g[6] ? { null: true } : { literal: g[4] !== undefined ? g[4].replace(/''/g, "'") : g[5] };
+    globals.push({ item: globalItem(g[1]), value });
+  }
+  return { form: last[2].toUpperCase(), builtin: last[1].toUpperCase() as Navigation["builtin"], globals };
 }
 
 /** USER no Forms é o usuário logado; no APEX a sessão do banco é do schema, então vira :APP_USER. */
@@ -156,18 +199,39 @@ const OPEN_FORM_STMT = /^(go_block\s*\(\s*'\w+'\s*\)|execute_query|set_window_pr
  */
 export const RULES: Rule[] = [
   {
+    id: "navegacao_entre_forms",
+    trigger: /^(WHEN-BUTTON-PRESSED|KEY-\w+)$/,
+    apply: (_t, code) => {
+      const nav = parseNavigation(code);
+      if (!nav) return null;
+      const sets = nav.globals.map((g) => g.item).join(", ");
+      return {
+        apexComponent: "button",
+        description: `${nav.builtin} de ${nav.form}${sets ? ` passando ${sets}` : ""}. Vira botão "Redirect to Page" para a página do form ${nav.form}${sets ? ", com os application items na URL" : ""}.`,
+        confidence: 0.92,
+        navigation: nav,
+      };
+    },
+  },
+  {
     id: "commit_form_padrao",
     trigger: /^KEY-COMMIT$/,
-    apply: (_t, code) =>
-      /^commit_form\s*;?$/i.test(code)
-        ? { apexComponent: "nativo", description: "Commit padrão. No APEX o processo automático de linha (Form/IG) já salva.", confidence: 0.98 }
-        : null,
+    apply: (_t, code) => {
+      if (/^commit_form\s*;?$/i.test(code)) return { apexComponent: "nativo", description: "Commit padrão. No APEX o processo automático de linha (Form/IG) já salva.", confidence: 0.98 };
+      // Padrão comum do Forms 4.5/5/6: grava e avisa se deu certo.
+      const m = code.match(/^commit_form\s*;\s*if\s+form_success\s+then\s+message\s*\(\s*'((?:[^']|'')*)'\s*\)\s*;\s*end\s+if\s*;?$/i);
+      return m
+        ? { apexComponent: "nativo", description: `Commit padrão com aviso "${m[1]}". Vira a Success Message do processo que salva o formulário.`, message: m[1].replace(/''/g, "'"), confidence: 0.95 }
+        : null;
+    },
   },
   {
     id: "tecla_builtin_padrao",
     trigger: /^KEY-/,
     apply: (t, code) => {
-      const sts = splitStatements(code).map((s) => s.replace(/^do_key\s*\(\s*'(\w+)'\s*\)$/i, "$1"));
+      const sts = splitStatements(code).map((s) =>
+        s.replace(/^do_key\s*\(\s*'(\w+)'\s*\)$/i, "$1").replace(/^(exit_form|clear_form|commit_form|clear_block)\s*\(\s*\w+(?:\s*,\s*\w+)*\s*\)$/i, "$1"),
+      );
       if (!sts.length || !sts.every((s) => KEY_BUILTINS.test(s))) return null;
       return {
         apexComponent: "nativo",

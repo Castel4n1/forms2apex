@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Converte o XML gerado pelo frmf2xml (Oracle Forms) em IR (JSON enxuto).
+"""Converte o XML gerado pelo frmf2xml (form .fmb ou menu .mmb do Oracle Forms) em IR (JSON enxuto).
 
 Uso:
     python3 forms_parser.py entrada.xml > ir.json
@@ -126,20 +126,48 @@ class Parser:
             "items": [self.item(i, name, triggers) for i in children(el, "Item")],
         }
 
+    def menu(self, module) -> dict:
+        """MenuModule (.mmb pelo frmf2xml): menus, itens e o codigo de cada comando."""
+        menus = []
+        for m in children(module, "Menu"):
+            items = []
+            for it in children(m, "MenuItem"):
+                command = (attr(it, "CommandType") or "").lower()
+                sub = attr(it, "SubMenuName") or attr(it, "SubMenu")
+                kind = "menu" if command == "menu" or sub else "plsql" if "pl/sql" in command or attr(it, "MenuItemCode") else "nenhum"
+                items.append({
+                    "name": attr(it, "Name"),
+                    "label": attr(it, "Label") or attr(it, "Name"),
+                    "kind": kind,
+                    "subMenu": sub,
+                    "code": self.code(attr(it, "MenuItemCode") or attr(it, "CommandText") or ""),
+                    "separator": (attr(it, "MenuItemType") or "").lower() == "separator",
+                })
+            menus.append({"name": attr(m, "Name"), "title": attr(m, "Title"), "items": items})
+        return {
+            "irVersion": IR_VERSION,
+            "kind": "menu",
+            "menu": {"name": attr(module, "Name"), "mainMenu": attr(module, "MainMenu") or (menus[0]["name"] if menus else None), "menus": menus},
+            "meta": {"secretsMasked": self.secrets_masked},
+        }
+
     def parse(self, xml_bytes: bytes) -> dict:
         safe = etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=False, load_dtd=False)
         root = etree.fromstring(xml_bytes, parser=safe)
-        form = root if local(root.tag) == "FormModule" else next(
-            (e for e in root.iter() if local(e.tag) == "FormModule"), None
-        )
+        find = lambda name: root if local(root.tag) == name else next((e for e in root.iter() if local(e.tag) == name), None)
+        form = find("FormModule")
         if form is None:
-            raise ValueError("Elemento FormModule nao encontrado. O arquivo foi gerado pelo frmf2xml?")
+            menu = find("MenuModule")
+            if menu is not None:
+                return self.menu(menu)
+            raise ValueError("Elemento FormModule ou MenuModule nao encontrado. O arquivo foi gerado pelo frmf2xml?")
 
         triggers = [self.trigger(t, "form", attr(form, "Name")) for t in children(form, "Trigger")]
         blocks = [self.block(b, triggers) for b in children(form, "Block")]
 
         return {
             "irVersion": IR_VERSION,
+            "kind": "form",
             "form": {
                 "name": attr(form, "Name"),
                 "title": attr(form, "Title"),

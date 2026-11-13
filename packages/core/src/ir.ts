@@ -58,3 +58,26 @@ export type IR = z.infer<typeof IRSchema>;
 export type Block = z.infer<typeof BlockSchema>;
 export type Item = z.infer<typeof ItemSchema>;
 export type Trigger = z.infer<typeof TriggerSchema>;
+
+/** Menu (.mmb pelo frmf2xml). */
+export const MenuItemSchema = z.object({
+  name: z.string(),
+  label: z.string(),
+  kind: z.enum(["menu", "plsql", "nenhum"]),
+  subMenu: z.string().nullish(),
+  code: z.string().default(""),
+  separator: z.boolean().default(false),
+});
+
+export const MenuIRSchema = z.object({
+  irVersion: z.literal("1.0"),
+  kind: z.literal("menu"),
+  menu: z.object({
+    name: z.string(),
+    mainMenu: z.string().nullish(),
+    menus: z.array(z.object({ name: z.string(), title: z.string().nullish(), items: z.array(MenuItemSchema) })),
+  }),
+  meta: z.object({ secretsMasked: z.number() }),
+});
+
+export type MenuIR = z.infer<typeof MenuIRSchema>;

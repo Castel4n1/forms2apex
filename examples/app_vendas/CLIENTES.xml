@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Aplicação de exemplo VENDAS (fictícia, para testes). Não contém código de cliente. -->
+<Module version="120000" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="CLIENTES" Title="Cadastro de Clientes" FirstNavigationBlockName="CLI">
+    <Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="go_block('CLI');&#10;execute_query;"/>
+    <Trigger Name="ON-ERROR" TriggerText="message('Erro: '||error_text);"/>
+    <Trigger Name="KEY-EXIT" TriggerText="exit_form;"/>
+    <Block Name="CLI" QueryDataSourceName="CLIENTES" RecordsDisplayCount="1" DatabaseBlock="true" OrderByClause="nome">
+      <Trigger Name="POST-QUERY" TriggerText="select descricao into :cli.desc_cidade from cidades where id = :cli.cidade_id;"/>
+      <Trigger Name="PRE-INSERT" TriggerText="select clientes_seq.nextval into :cli.id from dual;&#10;:cli.dt_cadastro := sysdate;"/>
+      <Trigger Name="KEY-COMMIT" TriggerText="commit_form;"/>
+      <Item Name="ID" ItemType="Text Item" DataType="Number" MaximumLength="10" Prompt="Código" PrimaryKey="true"/>
+      <Item Name="NOME" ItemType="Text Item" DataType="Char" MaximumLength="100" Prompt="Nome" Required="true"/>
+      <Item Name="CPF" ItemType="Text Item" DataType="Char" MaximumLength="14" Prompt="CPF">
+        <Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="if not pkg_util.cpf_valido(:cli.cpf) then&#10;  message('CPF inválido');&#10;  raise form_trigger_failure;&#10;end if;"/>
+      </Item>
+      <Item Name="EMAIL" ItemType="Text Item" DataType="Char" MaximumLength="120" Prompt="E-mail">
+        <Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="if :cli.email not like '%@%' then&#10;  message('E-mail inválido');&#10;  raise form_trigger_failure;&#10;end if;"/>
+      </Item>
+      <Item Name="CIDADE_ID" ItemType="Text Item" DataType="Number" Prompt="Cidade" LovName="LOV_CIDADES"/>
+      <Item Name="DESC_CIDADE" ItemType="Display Item" DataType="Char" DatabaseItem="false"/>
+      <Item Name="LIMITE_CREDITO" ItemType="Text Item" DataType="Number" Prompt="Limite de crédito" InitializeValue="0"/>
+      <Item Name="DT_CADASTRO" ItemType="Text Item" DataType="Date" Prompt="Cadastro" Visible="false"/>
+      <Item Name="BT_PEDIDOS" ItemType="Push Button" Label="Pedidos do cliente" DatabaseItem="false">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText=":global.cliente_id := :cli.id;&#10;call_form('PEDIDOS', no_hide, do_replace);"/>
+      </Item>
+      <Item Name="BT_ETIQUETA" ItemType="Push Button" Label="Etiqueta" DatabaseItem="false">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="host('lpr /tmp/etiqueta_'||:cli.id||'.txt');"/>
+      </Item>
+    </Block>
+    <LOV Name="LOV_CIDADES" RecordGroupName="RG_CIDADES" Title="Cidades"/>
+    <RecordGroup Name="RG_CIDADES" RecordGroupQuery="select descricao, id from cidades order by descricao"/>
+    <Canvas Name="CV_PRINCIPAL" CanvasType="Content"/>
+  </FormModule>
+</Module>

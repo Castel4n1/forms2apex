@@ -28,6 +28,8 @@ Responda SOMENTE com JSON: {"apexComponent","description","code","confidence","o
 export interface AiOptions {
   apiKey?: string;
   model?: string;
+  /** Contexto da aplicação (ex.: rotinas que já estão em package), enviado junto com cada trigger. */
+  context?: string;
 }
 
 export interface AiResult {
@@ -46,13 +48,13 @@ export async function convertWithAi(t: Trigger, bindMap: Record<string, string>,
 
   const msg = await client.messages.create({
     model,
-    max_tokens: 1500,
+    max_tokens: 3000,
     system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
     messages: [
       {
         role: "user",
         content: `Trigger: ${t.name} (escopo ${t.scope}, dono ${t.owner})
-Mapa de binds: ${JSON.stringify(bindMap)}
+Mapa de binds: ${JSON.stringify(bindMap)}${opts.context ? `\n${opts.context}` : ""}
 <codigo_forms>
 ${t.code}
 </codigo_forms>`,
@@ -61,8 +63,16 @@ ${t.code}
   });
 
   const text = msg.content.map((c) => ("text" in c ? c.text : "")).join("");
-  const json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
-  const result = AiOutput.safeParse(JSON.parse(json));
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end < start) throw new Error(msg.stop_reason === "max_tokens" ? "resposta cortada (max_tokens)" : "resposta sem JSON");
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text.slice(start, end + 1));
+  } catch {
+    throw new Error("JSON inválido na resposta");
+  }
+  const result = AiOutput.safeParse(raw);
   // falha de schema vira pendência no chamador, com mensagem de uma linha
   if (!result.success) throw new Error(`resposta fora do schema: ${result.error.issues.map((i) => `${i.path.join(".") || "raiz"}: ${i.message}`).join("; ")}`);
   const parsed = result.data;

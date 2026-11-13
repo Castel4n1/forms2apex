@@ -7,8 +7,8 @@ Script faz o determinístico, RAG fornece padrões, IA só no ambíguo. Nada som
 
 ## Mapa
 - `parser/forms_parser.py`: XML do frmf2xml para IR (JSON). Mascara segredos, bloqueia XXE.
-- `packages/core/src/`: diagnose (riscos), rules (conversões determinísticas), ai (Claude), plan (páginas), generate (SQL), apex (script de import APEX 26.1), report (docs), pipeline.
-- `packages/cli`: `npm run migrate -- <xml> --out <pasta> --profile <json> [--apex-base fNNN.sql]`.
+- `packages/core/src/`: diagnose (riscos), rules (conversões determinísticas), ai (Claude), plan (páginas), generate (SQL), apex (script de import APEX 26.1), report (docs), pipeline (um form), app + appreport (aplicação inteira: menu, navegação, :GLOBAL, bibliotecas, PROXIMOS_PASSOS e DUVIDAS_DE_REGRA), library (.pld).
+- `packages/cli`: `npm run migrate -- <xml | pasta | arquivos...> --out <pasta> --profile <json> [--apex-base fNNN.sql]`. Pasta ou vários arquivos = modo aplicação.
 - `apps/web`: interface Next.js com migração ao vivo (`npm run dev`).
 - `skills/`: skills por fase. Comece por `skills/forms-migrate`.
 - `rag/patterns/`: padrões Forms para APEX.
