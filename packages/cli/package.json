@@ -1,0 +1,8 @@
+{
+  "name": "@forms2apex/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "f2a": "src/index.ts" },
+  "dependencies": { "@forms2apex/core": "0.1.0" }
+}

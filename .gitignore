@@ -1,0 +1,12 @@
+node_modules/
+.next/
+output/
+uploads/
+.env
+*.fmb
+*.fmx
+*.mmb
+*.pll
+__pycache__/
+*.tsbuildinfo
+next-env.d.ts

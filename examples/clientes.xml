@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module version="120000" xmlns="http://xmlns.oracle.com/Forms">
+  <FormModule Name="CLIENTES" Title="Cadastro de Clientes" FirstNavigationBlockName="CLI">
+    <Trigger Name="WHEN-NEW-FORM-INSTANCE" TriggerText="go_block('CLI');&#10;execute_query;"/>
+    <Trigger Name="ON-ERROR" TriggerText="message('Erro: '||error_text);"/>
+    <Block Name="CLI" QueryDataSourceName="CLIENTES" RecordsDisplayCount="1" DatabaseBlock="true">
+      <Trigger Name="POST-QUERY" TriggerText="select descricao into :cli.desc_cidade from cidades where id = :cli.cidade_id;"/>
+      <Trigger Name="PRE-INSERT" TriggerText="select clientes_seq.nextval into :cli.id from dual;"/>
+      <Trigger Name="KEY-COMMIT" TriggerText="commit_form;"/>
+      <Item Name="ID" ItemType="Text Item" DataType="Number" MaximumLength="10" Prompt="Código" Required="true"/>
+      <Item Name="NOME" ItemType="Text Item" DataType="Char" MaximumLength="100" Prompt="Nome" Required="true"/>
+      <Item Name="CPF" ItemType="Text Item" DataType="Char" MaximumLength="14" Prompt="CPF">
+        <Trigger Name="WHEN-VALIDATE-ITEM" TriggerText="if not pkg_util.cpf_valido(:cli.cpf) then&#10;  message('CPF inválido');&#10;  raise form_trigger_failure;&#10;end if;"/>
+      </Item>
+      <Item Name="CIDADE_ID" ItemType="Text Item" DataType="Number" Prompt="Cidade" LovName="LOV_CIDADES"/>
+      <Item Name="DESC_CIDADE" ItemType="Display Item" DataType="Char" DatabaseItem="false"/>
+      <Item Name="BT_IMPRIMIR" ItemType="Push Button" Label="Imprimir" DatabaseItem="false">
+        <Trigger Name="WHEN-BUTTON-PRESSED" TriggerText="host('lpr /tmp/cliente_'||:cli.id||'.txt');"/>
+      </Item>
+    </Block>
+    <Block Name="PEDIDOS" QueryDataSourceName="PEDIDOS" RecordsDisplayCount="10" WhereClause="cliente_id = :cli.id">
+      <Item Name="NUMERO" ItemType="Text Item" DataType="Number" Prompt="Pedido"/>
+      <Item Name="DATA" ItemType="Text Item" DataType="Date" Prompt="Data"/>
+      <Item Name="VALOR" ItemType="Text Item" DataType="Number" Prompt="Valor"/>
+    </Block>
+    <LOV Name="LOV_CIDADES" RecordGroupName="RG_CIDADES" Title="Cidades"/>
+    <RecordGroup Name="RG_CIDADES" RecordGroupQuery="select descricao, id from cidades order by descricao"/>
+    <ProgramUnit Name="CALCULA_TOTAL" ProgramUnitType="Function" ProgramUnitText="function calcula_total(p_cli number) return number is&#10;  v number;&#10;begin&#10;  select sum(valor) into v from pedidos where cliente_id = p_cli;&#10;  return nvl(v,0);&#10;end;"/>
+    <Canvas Name="CV_PRINCIPAL" CanvasType="Content"/>
+  </FormModule>
+</Module>
