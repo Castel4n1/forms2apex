@@ -1,7 +1,14 @@
 #!/usr/bin/env -S npx tsx
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { runPipeline } from "../../core/src/index.ts";
+
+// .env da raiz do projeto (ANTHROPIC_API_KEY etc.). Variáveis já definidas no ambiente têm prioridade.
+const rootEnv = resolve(dirname(fileURLToPath(import.meta.url)), "../../../.env");
+if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
