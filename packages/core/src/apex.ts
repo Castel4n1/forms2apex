@@ -35,7 +35,8 @@ export function parseApexBase(sql: string): ApexBase {
   const flow = sql.match(/create_flow\s*\(([\s\S]*?)\n\);/);
   const themeId = flow ? param("theme_id", flow[1]) : undefined;
   const theme = [...sql.matchAll(/create_theme\s*\(([\s\S]*?)\n\);/g)].map((m) => m[1]).find((t) => new RegExp(`p_theme_id=>${themeId}\\b`).test(t));
-  const tpl = (name: string) => theme?.match(new RegExp(`p_default_${name}=>wwv_flow_imp\\.id\\((\\d+)\\)`))?.[1];
+  // Até o 26.1 o export usa wwv_flow_imp.id(N) (com offset); no 26.2 os templates do tema assinado vêm como N puro.
+  const tpl = (name: string) => theme?.match(new RegExp(`p_default_${name}=>(wwv_flow_imp\\.id\\(\\d+\\)|\\d+)`))?.[1];
   const required = (v: string | undefined, name: string) => {
     if (!v) throw new Error(`Export APEX inválido: ${name} não encontrado`);
     return v;
@@ -195,7 +196,7 @@ export function generateApexPages(ir: IR, bp: Blueprint, results: TriggerResult[
   const form = ir.form.name.toUpperCase();
   const idOf = (key: string) => exportId(form, key);
   const ref = (key: string) => `wwv_flow_imp.id(${idOf(key)})`;
-  const tpl = (t?: string) => (base && t ? `wwv_flow_imp.id(${t})` : undefined);
+  const tpl = (t?: string) => (base && t ? t : undefined);
   const T = base?.templates ?? {};
 
   const manual: string[] = [];

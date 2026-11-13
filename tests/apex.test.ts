@@ -74,11 +74,14 @@ test("literal SQL: aspas dobradas e não ASCII em unistr", () => {
 });
 
 test("export base: lê cabeçalho, tema atual e páginas usadas", async () => {
-  const b = parseApexBase(await readFile("tests/fixtures/base_app.sql", "utf8"));
+  const base = await readFile("tests/fixtures/base_app.sql", "utf8");
+  const b = parseApexBase(base);
   assert.equal(b.applicationId, "500");
   assert.equal(b.idOffset, "2222222222222222");
   assert.equal(b.themeId, "42");
-  assert.equal(b.templates.form, "104");
+  assert.equal(b.templates.form, "wwv_flow_imp.id(104)");
+  // 26.2: template do tema assinado vem como número puro
+  assert.equal(parseApexBase(base.replace("p_default_form_template=>wwv_flow_imp.id(104)", "p_default_form_template=>4075786578761660127")).templates.form, "4075786578761660127");
   assert.deepEqual([...b.usedPages].sort((x, y) => x - y), [10, 1000]);
 });
 

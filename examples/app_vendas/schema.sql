@@ -209,7 +209,7 @@ insert into vnd_emp values (7001, 'ANA', 'GERENTE', null, 9500, date '2015-03-01
 insert into vnd_emp values (7002, 'BRUNO', 'VENDEDOR', 7001, 4200, date '2018-06-11', 10);
 insert into vnd_emp values (7003, 'CARLA', 'VENDEDOR', 7001, 4300, date '2019-02-20', 10);
 insert into vnd_emp values (7004, 'DIEGO', 'GERENTE', null, 8800, date '2016-08-15', 20);
-insert into vnd_emp values (7005, 'ELISA', 'CONFERENTE', 7004, 3100, date '2021-05-03', 20);
+insert into vnd_emp values (7005, 'ELISA', 'AUXILIAR', 7004, 3100, date '2021-05-03', 20);
 insert into vnd_emp values (7006, 'FABIO', 'ANALISTA', null, 7200, date '2017-10-09', 30);
 
 commit;
